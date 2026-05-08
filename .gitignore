@@ -1,3 +1,6 @@
 build*/
+.agents/
 .cache/
+.claude/
+.codex/
 compile_commands.json

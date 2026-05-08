@@ -1,30 +1,28 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#include "porch/cuda_jit.hpp"
+#include "porch/types.hpp"
+
+#include <memory>
 #include <span>
 #include <vector>
 
 namespace porch {
 
-using index_t = std::int64_t;
+class tensor_expr;
 
 enum class device_kind {
-    cpu,
     gpu,
 };
 
 class device {
   public:
-    constexpr explicit device(device_kind kind = device_kind::cpu,
+    constexpr explicit device(device_kind kind = device_kind::gpu,
                               int ordinal = 0) noexcept
         : kind_(kind), ordinal_(ordinal) {}
 
     [[nodiscard]] constexpr device_kind kind() const noexcept { return kind_; }
     [[nodiscard]] constexpr int ordinal() const noexcept { return ordinal_; }
-    [[nodiscard]] constexpr bool is_cpu() const noexcept {
-        return kind_ == device_kind::cpu;
-    }
     [[nodiscard]] constexpr bool is_gpu() const noexcept {
         return kind_ == device_kind::gpu;
     }
@@ -39,22 +37,55 @@ class device {
 
 class tensor {
   public:
-    tensor(std::vector<index_t> shape, std::vector<float> values,
+    tensor(std::vector<index_t> shape, std::vector<float32_t> values,
            device placement = device{});
+    tensor(std::vector<index_t> shape, std::vector<float32_t> values,
+           cuda_jit::device_buffer device_values, device placement = device{});
 
     [[nodiscard]] std::span<const index_t> shape() const noexcept;
-    [[nodiscard]] std::size_t rank() const noexcept;
-    [[nodiscard]] std::size_t numel() const noexcept;
+    [[nodiscard]] size_t rank() const noexcept;
+    [[nodiscard]] size_t numel() const noexcept;
     [[nodiscard]] device placement() const noexcept;
-    [[nodiscard]] std::span<const float> data() const noexcept;
+    [[nodiscard]] std::span<const float32_t> data() const;
+    [[nodiscard]] const cuda_jit::device_buffer& device_data() const noexcept;
 
   private:
+    friend tensor materialize(const tensor_expr& expression);
+
+    tensor(std::vector<index_t> shape, std::vector<float32_t> values,
+           cuda_jit::device_buffer device_values, bool host_current,
+           device placement);
+
     std::vector<index_t> shape_;
-    std::vector<float> values_;
+    mutable std::vector<float32_t> values_;
+    cuda_jit::device_buffer device_values_;
+    mutable bool host_current_ = true;
     device placement_;
 };
 
-[[nodiscard]] tensor full(std::vector<index_t> shape, float value,
+class tensor_expr {
+  public:
+    struct node;
+
+    tensor_expr(const tensor& value);
+    tensor_expr(float32_t value);
+
+    [[nodiscard]] tensor eval() const;
+
+    operator tensor() const;
+
+  private:
+    explicit tensor_expr(std::shared_ptr<const node> root);
+
+    friend tensor_expr operator+(tensor_expr lhs, tensor_expr rhs);
+    friend tensor_expr operator-(tensor_expr lhs, tensor_expr rhs);
+    friend tensor_expr operator*(tensor_expr lhs, tensor_expr rhs);
+    friend tensor materialize(const tensor_expr& expression);
+
+    std::shared_ptr<const node> root_;
+};
+
+[[nodiscard]] tensor full(std::vector<index_t> shape, float32_t value,
                           device placement = device{});
 [[nodiscard]] tensor zeros(std::vector<index_t> shape,
                            device placement = device{});
@@ -62,8 +93,10 @@ class tensor {
 [[nodiscard]] tensor subtract(const tensor& lhs, const tensor& rhs);
 [[nodiscard]] tensor multiply(const tensor& lhs, const tensor& rhs);
 
-[[nodiscard]] tensor operator+(const tensor& lhs, const tensor& rhs);
-[[nodiscard]] tensor operator-(const tensor& lhs, const tensor& rhs);
-[[nodiscard]] tensor operator*(const tensor& lhs, const tensor& rhs);
+[[nodiscard]] tensor materialize(const tensor_expr& expression);
+
+[[nodiscard]] tensor_expr operator+(tensor_expr lhs, tensor_expr rhs);
+[[nodiscard]] tensor_expr operator-(tensor_expr lhs, tensor_expr rhs);
+[[nodiscard]] tensor_expr operator*(tensor_expr lhs, tensor_expr rhs);
 
 } // namespace porch

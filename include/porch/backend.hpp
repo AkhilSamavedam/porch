@@ -7,19 +7,16 @@
 namespace porch {
 
 enum class backend_kind {
-    cpu,
     cuda_jit,
 };
 
 class backend {
   public:
-    constexpr explicit backend(backend_kind kind = backend_kind::cpu) noexcept
+    constexpr explicit backend(
+        backend_kind kind = backend_kind::cuda_jit) noexcept
         : kind_(kind) {}
 
     [[nodiscard]] constexpr backend_kind kind() const noexcept { return kind_; }
-    [[nodiscard]] constexpr bool is_cpu() const noexcept {
-        return kind_ == backend_kind::cpu;
-    }
     [[nodiscard]] constexpr bool is_cuda_jit() const noexcept {
         return kind_ == backend_kind::cuda_jit;
     }

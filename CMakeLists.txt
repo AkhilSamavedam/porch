@@ -5,14 +5,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(
     porch
     VERSION 0.1.0
-    DESCRIPTION "A C++ tensor library with pluggable accelerator backends"
+    DESCRIPTION "A C++ tensor library with a CUDA JIT backend"
     LANGUAGES CXX
 )
 
 option(PORCH_BUILD_TESTS "Build porch tests" ON)
-option(PORCH_ENABLE_CUDA_JIT "Enable the CUDA driver JIT backend" ON)
 
-add_library(porch src/backend.cpp src/tensor.cpp)
+add_library(porch src/backend.cpp src/cuda_jit.cpp src/tensor.cpp)
 add_library(porch::porch ALIAS porch)
 
 target_compile_features(porch PUBLIC cxx_std_20)
@@ -27,11 +26,6 @@ target_include_directories(
     PUBLIC
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
-)
-target_compile_definitions(
-    porch
-    PRIVATE
-        $<$<BOOL:${PORCH_ENABLE_CUDA_JIT}>:PORCH_ENABLE_CUDA_JIT=1>
 )
 target_link_libraries(porch PRIVATE ${CMAKE_DL_LIBS})
 
