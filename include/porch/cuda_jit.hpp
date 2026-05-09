@@ -11,7 +11,7 @@
 
 namespace porch::cuda_jit {
 
-    class device_buffer_state;
+    struct device_buffer_state;
 
     class device_buffer {
       public:
@@ -59,6 +59,7 @@ namespace porch::cuda_jit {
     void copy_to_device(device_buffer& buffer,
                         std::span<const float32_t> source);
     void copy_to_host(const device_buffer& buffer, std::span<float32_t> target);
+    void synchronize();
 
     void launch_elementwise_binary(std::string_view ptx,
                                    std::string_view function,

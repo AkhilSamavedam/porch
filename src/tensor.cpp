@@ -535,9 +535,24 @@ namespace porch {
         return state_->values;
     }
 
+    std::vector<float32_t> tensor::cpu() const {
+        const std::span<const float32_t> host = data();
+        return {host.begin(), host.end()};
+    }
+
     const cuda_jit::device_buffer& tensor::device_data() const {
         ensure_materialized();
         return state_->device_values;
+    }
+
+    const tensor& tensor::realize() const {
+        ensure_materialized();
+        return *this;
+    }
+
+    void tensor::synchronize() const {
+        ensure_materialized();
+        cuda_jit::synchronize();
     }
 
     void tensor::ensure_materialized() const {

@@ -22,14 +22,25 @@ porch::tensor y = x * 2.0F - 1.0F;
 
 In this example, assigning `a + b` to `x` does not force a kernel launch. `x`
 stores the pending graph, and the later expression can inline that graph into
-`y`. Materialization happens at sync boundaries such as `data()`,
-`device_data()`, or explicit `eval()`.
+`y`.
 
 At materialization time, porch lowers the connected graph to generated CUDA C++
 source, compiles it with NVRTC, caches the resulting PTX, and launches it through
 the CUDA driver API. The current lowering emits a single fused kernel for
 supported connected graphs, including elementwise ops, strided slicing, and
 simple rank-2 matmul expression nodes.
+
+GPU work is launched on a CUDA stream and kernel launch does not automatically
+block the CPU. The explicit boundaries are:
+
+- `realize()`: compile and launch pending graph work, keeping the result on GPU.
+- `synchronize()`: wait for the CUDA stream.
+- `cpu()`: copy values to host memory; this implies materialization and stream
+  synchronization.
+- `data()`: returns a host span for convenience; this also implies
+  materialization and stream synchronization.
+- `device_data()`: materializes GPU storage and returns the device buffer handle
+  without copying to host.
 
 The IR is not built at C++ compile time. It is recorded dynamically while the
 user program runs, which lets porch preserve laziness across ordinary statement

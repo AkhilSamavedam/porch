@@ -173,6 +173,19 @@ namespace {
         assert(!result.device_data().empty());
     }
 
+    void explicit_gpu_sync_and_cpu_copy() {
+        const porch::tensor lhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
+        const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
+
+        const porch::tensor result = lhs + rhs;
+        result.realize();
+        assert(!result.device_data().empty());
+        result.synchronize();
+
+        assert((result.cpu() ==
+                std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F}));
+    }
+
     void scalar_elementwise_ops_use_cuda_backend() {
         const porch::tensor values{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
 
@@ -342,6 +355,8 @@ namespace {
          multiline_expression_stays_lazy_with_auto, true},
         {"tensor_assignment_keeps_graph_lazy",
          tensor_assignment_keeps_graph_lazy, true},
+        {"explicit_gpu_sync_and_cpu_copy", explicit_gpu_sync_and_cpu_copy,
+         true},
         {"scalar_elementwise_ops_use_cuda_backend",
          scalar_elementwise_ops_use_cuda_backend, true},
         {"matmul_uses_cuda_backend", matmul_uses_cuda_backend, true},

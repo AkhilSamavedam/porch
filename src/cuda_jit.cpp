@@ -3,6 +3,7 @@
 #include <dlfcn.h>
 
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <stddef.h>
@@ -127,6 +128,9 @@ namespace porch::cuda_jit {
                                                   cuda_device);
             using ctx_set_current_fn = cuda_result (*)(cuda_context);
             using ctx_destroy_fn = cuda_result (*)(cuda_context);
+            using stream_create_fn = cuda_result (*)(cuda_stream*, uint32_t);
+            using stream_destroy_fn = cuda_result (*)(cuda_stream);
+            using stream_synchronize_fn = cuda_result (*)(cuda_stream);
             using mem_alloc_fn = cuda_result (*)(cuda_device_ptr*, size_t);
             using mem_free_fn = cuda_result (*)(cuda_device_ptr);
             using memcpy_htod_fn = cuda_result (*)(cuda_device_ptr, const void*,
@@ -153,6 +157,9 @@ namespace porch::cuda_jit {
             ctx_create_fn ctx_create = nullptr;
             ctx_set_current_fn ctx_set_current = nullptr;
             ctx_destroy_fn ctx_destroy = nullptr;
+            stream_create_fn stream_create = nullptr;
+            stream_destroy_fn stream_destroy = nullptr;
+            stream_synchronize_fn stream_synchronize = nullptr;
             mem_alloc_fn mem_alloc = nullptr;
             mem_free_fn mem_free = nullptr;
             memcpy_htod_fn memcpy_htod = nullptr;
@@ -175,6 +182,9 @@ namespace porch::cuda_jit {
                        api.device_get != nullptr && api.ctx_create != nullptr &&
                        api.ctx_set_current != nullptr &&
                        api.ctx_destroy != nullptr && api.mem_alloc != nullptr &&
+                       api.stream_create != nullptr &&
+                       api.stream_destroy != nullptr &&
+                       api.stream_synchronize != nullptr &&
                        api.mem_free != nullptr && api.memcpy_htod != nullptr &&
                        api.memcpy_dtoh != nullptr &&
                        api.module_load_data != nullptr &&
@@ -227,6 +237,13 @@ namespace porch::cuda_jit {
                 library.symbol<cuda_api::ctx_set_current_fn>("cuCtxSetCurrent");
             api.ctx_destroy =
                 library.symbol<cuda_api::ctx_destroy_fn>("cuCtxDestroy_v2");
+            api.stream_create =
+                library.symbol<cuda_api::stream_create_fn>("cuStreamCreate");
+            api.stream_destroy = library.symbol<cuda_api::stream_destroy_fn>(
+                "cuStreamDestroy_v2");
+            api.stream_synchronize =
+                library.symbol<cuda_api::stream_synchronize_fn>(
+                    "cuStreamSynchronize");
             api.mem_alloc =
                 library.symbol<cuda_api::mem_alloc_fn>("cuMemAlloc_v2");
             api.mem_free =
@@ -426,10 +443,18 @@ namespace porch::cuda_jit {
                 check_cuda(runtime.api,
                            runtime.api.ctx_create(&context, 0, selected_device),
                            "cuCtxCreate");
+                check_cuda(runtime.api, runtime.api.stream_create(&stream, 0),
+                           "cuStreamCreate");
+            }
+
+            ~cuda_environment() {
+                if (stream != nullptr) (void)runtime.api.stream_destroy(stream);
             }
 
             cuda_runtime runtime;
             cuda_context context = nullptr;
+            cuda_stream stream = nullptr;
+            std::vector<std::shared_ptr<module_handle>> live_modules;
         };
 
         [[nodiscard]] cuda_environment& environment() {
@@ -479,6 +504,13 @@ namespace porch::cuda_jit {
                 message << name << " device buffer is too small";
                 throw std::invalid_argument(message.str());
             }
+        }
+
+        void synchronize(cuda_environment& env) {
+            check_cuda(env.runtime.api,
+                       env.runtime.api.stream_synchronize(env.stream),
+                       "cuStreamSynchronize");
+            env.live_modules.clear();
         }
 
     } // namespace
@@ -587,11 +619,14 @@ namespace porch::cuda_jit {
         require_device_bytes(buffer, target.size_bytes(), "source");
 
         cuda_environment& env = environment();
+        synchronize(env);
         check_cuda(env.runtime.api,
                    env.runtime.api.memcpy_dtoh(
                        target.data(), buffer.state_->ptr, target.size_bytes()),
                    "cuMemcpyDtoH");
     }
+
+    void synchronize() { synchronize(environment()); }
 
     void launch_elementwise_binary(std::string_view ptx,
                                    std::string_view function,
@@ -640,12 +675,14 @@ namespace porch::cuda_jit {
             env.runtime.api,
             env.runtime.api.module_load_data(&raw_module, ptx_text.c_str()),
             "cuModuleLoadData");
-        module_handle module{raw_module, env.runtime.api};
+        auto module =
+            std::make_shared<module_handle>(raw_module, env.runtime.api);
+        env.live_modules.push_back(module);
 
         cuda_function kernel = nullptr;
         const std::string function_name{function};
         check_cuda(env.runtime.api,
-                   env.runtime.api.module_get_function(&kernel, module.get(),
+                   env.runtime.api.module_get_function(&kernel, module->get(),
                                                        function_name.c_str()),
                    "cuModuleGetFunction");
 
@@ -668,12 +705,10 @@ namespace porch::cuda_jit {
         params.push_back(&element_count);
 
         check_cuda(env.runtime.api,
-                   env.runtime.api.launch_kernel(kernel, grid_size, 1, 1,
-                                                 block_size, 1, 1, 0, nullptr,
-                                                 params.data(), nullptr),
+                   env.runtime.api.launch_kernel(
+                       kernel, grid_size, 1, 1, block_size, 1, 1, 0, env.stream,
+                       params.data(), nullptr),
                    "cuLaunchKernel");
-        check_cuda(env.runtime.api, env.runtime.api.ctx_synchronize(),
-                   "cuCtxSynchronize");
     }
 
 } // namespace porch::cuda_jit

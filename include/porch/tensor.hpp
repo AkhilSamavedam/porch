@@ -106,7 +106,10 @@ namespace porch {
         [[nodiscard]] size_t numel() const noexcept;
         [[nodiscard]] device placement() const noexcept;
         [[nodiscard]] std::span<const float32_t> data() const;
+        [[nodiscard]] std::vector<float32_t> cpu() const;
         [[nodiscard]] const cuda_jit::device_buffer& device_data() const;
+        const tensor& realize() const;
+        void synchronize() const;
         [[nodiscard]] tensor_expr operator[](
             std::initializer_list<tensor_index> indices) const;
         [[nodiscard]] tensor_expr operator[](tensor_index index) const;
