@@ -106,14 +106,14 @@ namespace porch {
         [[nodiscard]] size_t numel() const noexcept;
         [[nodiscard]] device placement() const noexcept;
         [[nodiscard]] std::span<const float32_t> data() const;
-        [[nodiscard]] const cuda_jit::device_buffer& device_data()
-            const noexcept;
+        [[nodiscard]] const cuda_jit::device_buffer& device_data() const;
         [[nodiscard]] tensor_expr operator[](
             std::initializer_list<tensor_index> indices) const;
         [[nodiscard]] tensor_expr operator[](tensor_index index) const;
 
       private:
         friend tensor materialize(const tensor_expr& expression);
+        friend class tensor_expr;
         friend tensor make_materialized_tensor(
             std::vector<index_t> shape, std::vector<float32_t> values,
             cuda_jit::device_buffer device_values, bool host_current,
@@ -127,6 +127,8 @@ namespace porch {
         tensor(tensor_layout layout, std::vector<float32_t> values,
                cuda_jit::device_buffer device_values, bool host_current,
                device placement);
+
+        void ensure_materialized() const;
 
         std::shared_ptr<state> state_;
     };

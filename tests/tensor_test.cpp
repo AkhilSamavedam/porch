@@ -156,6 +156,23 @@ namespace {
         assert(!result.device_data().empty());
     }
 
+    void tensor_assignment_keeps_graph_lazy() {
+        const porch::tensor lhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
+        const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
+
+        const porch::tensor delayed = lhs + rhs;
+        assert((std::vector<porch::index_t>{delayed.shape().begin(),
+                                            delayed.shape().end()} ==
+                std::vector<porch::index_t>{2, 2}));
+
+        const porch::tensor result = delayed * 2.0F - 1.0F;
+
+        assert((std::vector<porch::float32_t>{result.data().begin(),
+                                              result.data().end()} ==
+                std::vector<porch::float32_t>{21.0F, 43.0F, 65.0F, 87.0F}));
+        assert(!result.device_data().empty());
+    }
+
     void scalar_elementwise_ops_use_cuda_backend() {
         const porch::tensor values{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
 
@@ -232,7 +249,8 @@ namespace {
         try {
             const porch::tensor result = porch::matmul(lhs, rhs);
             (void)result;
-        } catch (const std::invalid_argument&) {
+        }
+        catch (const std::invalid_argument&) {
             threw = true;
         }
         assert(threw);
@@ -242,7 +260,8 @@ namespace {
         bool threw = false;
         try {
             (void)porch::tensor{{2, 2}, {1.0F, 2.0F, 3.0F}};
-        } catch (const std::invalid_argument&) {
+        }
+        catch (const std::invalid_argument&) {
             threw = true;
         }
         assert(threw);
@@ -277,7 +296,8 @@ namespace {
             const std::string ptx = porch::cuda_jit::compile_to_ptx(source);
             assert(ptx.find(".version") != std::string::npos);
             assert(ptx.find("add_kernel") != std::string::npos);
-        } catch (const std::runtime_error&) {
+        }
+        catch (const std::runtime_error&) {
             threw = true;
         }
         (void)threw;
@@ -320,6 +340,8 @@ namespace {
          fused_expression_materializes_once, true},
         {"multiline_expression_stays_lazy_with_auto",
          multiline_expression_stays_lazy_with_auto, true},
+        {"tensor_assignment_keeps_graph_lazy",
+         tensor_assignment_keeps_graph_lazy, true},
         {"scalar_elementwise_ops_use_cuda_backend",
          scalar_elementwise_ops_use_cuda_backend, true},
         {"matmul_uses_cuda_backend", matmul_uses_cuda_backend, true},

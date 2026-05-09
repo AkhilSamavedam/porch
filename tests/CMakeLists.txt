@@ -15,6 +15,7 @@ set(
     multiply_uses_cuda_backend
     fused_expression_materializes_once
     multiline_expression_stays_lazy_with_auto
+    tensor_assignment_keeps_graph_lazy
     scalar_elementwise_ops_use_cuda_backend
     matmul_uses_cuda_backend
     matmul_returns_lazy_expression

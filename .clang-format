@@ -11,6 +11,7 @@ AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 AllowShortLoopsOnASingleLine: true
 BreakBeforeBraces: Custom
 BraceWrapping:
+  BeforeCatch: true
   BeforeElse: true
 RawStringFormats:
   - Language: Cpp

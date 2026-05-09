@@ -461,7 +461,8 @@ namespace porch::cuda_jit {
             try {
                 cuda_environment& env = environment();
                 (void)env.runtime.api.mem_free(ptr);
-            } catch (...) {
+            }
+            catch (...) {
             }
         }
 
@@ -506,7 +507,8 @@ namespace porch::cuda_jit {
         try {
             (void)environment();
             return true;
-        } catch (...) {
+        }
+        catch (...) {
             return false;
         }
     }

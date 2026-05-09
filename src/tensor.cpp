@@ -7,7 +7,6 @@
 #include <iomanip>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -48,6 +47,7 @@ namespace porch {
         cuda_jit::device_buffer device_values;
         mutable bool host_current = true;
         device placement;
+        mutable std::shared_ptr<const tensor_expr::node> expression;
     };
 
     namespace {
@@ -458,7 +458,8 @@ namespace porch {
                                                std::move(values),
                                                {},
                                                true,
-                                               placement})) {
+                                               placement,
+                                               nullptr})) {
         const size_t expected = state_->layout.numel();
         if (state_->values.size() != expected) {
             throw std::invalid_argument(
@@ -481,9 +482,9 @@ namespace porch {
     tensor::tensor(tensor_layout layout, std::vector<float32_t> values,
                    cuda_jit::device_buffer device_values, bool host_current,
                    device placement)
-        : state_(std::make_shared<state>(
-              state{std::move(layout), std::move(values),
-                    std::move(device_values), host_current, placement})) {
+        : state_(std::make_shared<state>(state{
+              std::move(layout), std::move(values), std::move(device_values),
+              host_current, placement, nullptr})) {
         const size_t expected = state_->layout.numel();
         if (state_->values.size() != expected) {
             throw std::invalid_argument(
@@ -521,11 +522,12 @@ namespace porch {
 
     size_t tensor::rank() const noexcept { return state_->layout.rank(); }
 
-    size_t tensor::numel() const noexcept { return state_->values.size(); }
+    size_t tensor::numel() const noexcept { return state_->layout.numel(); }
 
     device tensor::placement() const noexcept { return state_->placement; }
 
     std::span<const float32_t> tensor::data() const {
+        ensure_materialized();
         if (!state_->host_current) {
             cuda_jit::copy_to_host(state_->device_values, state_->values);
             state_->host_current = true;
@@ -533,8 +535,21 @@ namespace porch {
         return state_->values;
     }
 
-    const cuda_jit::device_buffer& tensor::device_data() const noexcept {
+    const cuda_jit::device_buffer& tensor::device_data() const {
+        ensure_materialized();
         return state_->device_values;
+    }
+
+    void tensor::ensure_materialized() const {
+        if (state_->expression == nullptr) return;
+
+        tensor realized = materialize(tensor_expr{state_->expression});
+        state_->layout = realized.state_->layout;
+        state_->values = std::move(realized.state_->values);
+        state_->device_values = std::move(realized.state_->device_values);
+        state_->host_current = realized.state_->host_current;
+        state_->placement = realized.state_->placement;
+        state_->expression = nullptr;
     }
 
     tensor_expr tensor::operator[](
@@ -595,7 +610,9 @@ namespace porch {
     }
 
     tensor_expr::tensor_expr(const tensor& value)
-        : root_(make_node(expr_kind::input, &value)) {}
+        : root_(value.state_->expression == nullptr
+                    ? make_node(expr_kind::input, &value)
+                    : value.state_->expression) {}
 
     tensor_expr::tensor_expr(float32_t value)
         : root_(make_node(expr_kind::scalar, nullptr, value)) {}
@@ -605,7 +622,27 @@ namespace porch {
 
     tensor tensor_expr::eval() const { return materialize(*this); }
 
-    tensor_expr::operator tensor() const { return eval(); }
+    tensor_expr::operator tensor() const {
+        expression_context context;
+        expression_info info = infer_expression(*root_, context);
+        if (!context.initialized)
+            throw std::invalid_argument(
+                "tensor expression must reference at least one tensor");
+        if (info.scalar)
+            throw std::invalid_argument(
+                "scalar expression cannot convert to a tensor");
+
+        const size_t count = checked_numel(info.shape);
+        tensor result{{0}, {}};
+        result.state_ = std::make_shared<tensor::state>(
+            tensor::state{tensor_layout{std::move(info.shape)},
+                          std::vector<float32_t>(count),
+                          {},
+                          false,
+                          context.placement,
+                          root_});
+        return result;
+    }
 
     tensor full(std::vector<index_t> shape, float32_t value, device placement) {
         const size_t count = checked_numel(shape);
