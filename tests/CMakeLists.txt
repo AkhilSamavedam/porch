@@ -13,6 +13,8 @@ set(
     add_uses_cuda_backend
     subtract_uses_cuda_backend
     multiply_uses_cuda_backend
+    elementwise_arithmetic_matches_expected_values
+    chained_arithmetic_matches_expected_values
     fused_expression_materializes_once
     multiline_expression_stays_lazy_with_auto
     tensor_assignment_keeps_graph_lazy
@@ -20,7 +22,9 @@ set(
     concurrent_same_lazy_tensor_materializes_once_safely
     concurrent_independent_lazy_tensors_use_thread_streams
     scalar_elementwise_ops_use_cuda_backend
+    scalar_arithmetic_order_matches_expected_values
     matmul_uses_cuda_backend
+    matmul_rectangular_values_are_correct
     matmul_returns_lazy_expression
     matmul_composes_with_elementwise_ir
     matmul_accepts_expression_operands

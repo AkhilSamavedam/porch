@@ -10,6 +10,7 @@ PenaltyReturnTypeOnItsOwnLine: 1000000
 AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 AllowShortLoopsOnASingleLine: true
 BreakBeforeBraces: Custom
+IndentCaseLabels: true
 BraceWrapping:
   BeforeCatch: true
   BeforeElse: true

@@ -131,6 +131,32 @@ namespace {
         assert(!result.device_data().empty());
     }
 
+    void elementwise_arithmetic_matches_expected_values() {
+        const porch::tensor lhs{{2, 3}, {-3.0F, -1.0F, 0.0F, 2.0F, 4.0F, 8.0F}};
+        const porch::tensor rhs{{2, 3}, {6.0F, -5.0F, 3.0F, 2.0F, -4.0F, 0.5F}};
+
+        const porch::tensor sum = lhs + rhs;
+        const porch::tensor difference = lhs - rhs;
+        const porch::tensor product = lhs * rhs;
+
+        assert((sum.cpu() == std::vector<porch::float32_t>{3.0F, -6.0F, 3.0F,
+                                                           4.0F, 0.0F, 8.5F}));
+        assert((difference.cpu() == std::vector<porch::float32_t>{
+                                        -9.0F, 4.0F, -3.0F, 0.0F, 8.0F, 7.5F}));
+        assert((product.cpu() == std::vector<porch::float32_t>{
+                                     -18.0F, 5.0F, 0.0F, 4.0F, -16.0F, 4.0F}));
+    }
+
+    void chained_arithmetic_matches_expected_values() {
+        const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
+        const porch::tensor rhs{{2, 3}, {6.0F, 5.0F, 4.0F, 3.0F, 2.0F, 1.0F}};
+
+        const porch::tensor result = (lhs + rhs) * (lhs - 1.0F) - rhs;
+
+        assert((result.cpu() == std::vector<porch::float32_t>{
+                                    -6.0F, 2.0F, 10.0F, 18.0F, 26.0F, 34.0F}));
+    }
+
     void fused_expression_materializes_once() {
         const porch::tensor lhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
         const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
@@ -275,6 +301,21 @@ namespace {
         assert(!result.device_data().empty());
     }
 
+    void scalar_arithmetic_order_matches_expected_values() {
+        const porch::tensor values{{2, 3},
+                                   {-2.0F, -1.0F, 0.0F, 1.0F, 2.0F, 3.0F}};
+
+        const porch::tensor left_scalar = 10.0F - values * 3.0F;
+        const porch::tensor right_scalar = (values + 5.0F) * 2.0F;
+
+        assert((left_scalar.cpu() ==
+                std::vector<porch::float32_t>{16.0F, 13.0F, 10.0F, 7.0F, 4.0F,
+                                              1.0F}));
+        assert((right_scalar.cpu() ==
+                std::vector<porch::float32_t>{6.0F, 8.0F, 10.0F, 12.0F, 14.0F,
+                                              16.0F}));
+    }
+
     void matmul_uses_cuda_backend() {
         const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
         const porch::tensor rhs{{3, 2},
@@ -289,6 +330,21 @@ namespace {
                                               result.data().end()} ==
                 std::vector<porch::float32_t>{58.0F, 64.0F, 139.0F, 154.0F}));
         assert(!result.device_data().empty());
+    }
+
+    void matmul_rectangular_values_are_correct() {
+        const porch::tensor lhs{{3, 2}, {1.0F, 2.0F, -1.0F, 3.0F, 4.0F, -2.0F}};
+        const porch::tensor rhs{
+            {2, 4}, {2.0F, 0.0F, -1.0F, 5.0F, 3.0F, -2.0F, 4.0F, 1.0F}};
+
+        const porch::tensor result = porch::matmul(lhs, rhs);
+
+        assert((std::vector<porch::index_t>{result.shape().begin(),
+                                            result.shape().end()} ==
+                std::vector<porch::index_t>{3, 4}));
+        assert((result.cpu() == std::vector<porch::float32_t>{
+                                    8.0F, -4.0F, 7.0F, 7.0F, 7.0F, -6.0F, 13.0F,
+                                    -2.0F, 2.0F, 4.0F, -12.0F, 18.0F}));
     }
 
     void matmul_returns_lazy_expression() {
@@ -427,6 +483,10 @@ namespace {
         {"add_uses_cuda_backend", add_uses_cuda_backend, true},
         {"subtract_uses_cuda_backend", subtract_uses_cuda_backend, true},
         {"multiply_uses_cuda_backend", multiply_uses_cuda_backend, true},
+        {"elementwise_arithmetic_matches_expected_values",
+         elementwise_arithmetic_matches_expected_values, true},
+        {"chained_arithmetic_matches_expected_values",
+         chained_arithmetic_matches_expected_values, true},
         {"fused_expression_materializes_once",
          fused_expression_materializes_once, true},
         {"multiline_expression_stays_lazy_with_auto",
@@ -441,7 +501,11 @@ namespace {
          concurrent_independent_lazy_tensors_use_thread_streams, true},
         {"scalar_elementwise_ops_use_cuda_backend",
          scalar_elementwise_ops_use_cuda_backend, true},
+        {"scalar_arithmetic_order_matches_expected_values",
+         scalar_arithmetic_order_matches_expected_values, true},
         {"matmul_uses_cuda_backend", matmul_uses_cuda_backend, true},
+        {"matmul_rectangular_values_are_correct",
+         matmul_rectangular_values_are_correct, true},
         {"matmul_returns_lazy_expression", matmul_returns_lazy_expression,
          true},
         {"matmul_composes_with_elementwise_ir",

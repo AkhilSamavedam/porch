@@ -1,6 +1,6 @@
 # porch
 
-`porch` is an early C++ tensor library scaffold intended to grow toward a
+`porch` (poor man's PyTorch) is an early C++ tensor library scaffold intended to grow toward a
 Torch-like programming model with ordinary C++ compilers and a CUDA JIT backend.
 
 CUDA support is modeled as a runtime JIT backend. The public library is built as
@@ -48,9 +48,12 @@ boundaries without requiring a special compiler.
 
 ## Threading model
 
-`porch::tensor` is a cheap shared handle and can be copied across threads. Lazy
-tensor materialization and host-cache updates are synchronized internally, so two
-threads touching the same pending tensor will not corrupt its state.
+`porch::tensor` is a cheap shared handle and can be copied across threads.
+Realized tensor metadata is immutable after construction and is read without a
+broad per-tensor lock. Lazy graph materialization is synchronized by a separate
+lazy-materialization object, and host-cache updates are synchronized by the
+realized storage object. Two threads touching the same pending tensor will not
+corrupt its state.
 
 The CUDA backend owns one process-wide CUDA context and uses a thread-local
 current stream, similar in spirit to LibTorch's per-thread current stream model.
@@ -67,9 +70,10 @@ Device memory uses CUDA's stream-ordered allocation APIs
 then synchronize only where host visibility requires it. Direct legacy
 `cuMemAlloc`/`cuMemFree` allocation is not used.
 
-Library invariants and tensor lifetimes are protected for concurrent reads and
-lazy materialization. Concurrent logical mutation of the same tensor data is not
-part of the API yet and should still be treated as user-synchronized.
+Library invariants and tensor lifetimes are protected for concurrent reads,
+host-cache fills, and lazy materialization. Concurrent logical mutation of the
+same tensor data is not part of the API yet and should still be treated as
+user-synchronized.
 
 ## Build and test
 

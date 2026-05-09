@@ -741,7 +741,9 @@ namespace porch::cuda_jit {
             if (input == nullptr) {
                 throw std::invalid_argument("CUDA elementwise input is null");
             }
-            require_device_bytes(*input, bytes, "input");
+            if (input->empty()) {
+                throw std::invalid_argument("CUDA elementwise input is empty");
+            }
         }
         require_device_bytes(out, bytes, "out");
 
