@@ -4,6 +4,7 @@ target_link_libraries(porch_tensor_test PRIVATE porch::porch)
 set(
     PORCH_TENSOR_TESTS
     construction_tracks_shape_and_device
+    construction_builds_contiguous_layout
     zeros_fills_gpu_tensor
     add_uses_cuda_backend
     subtract_uses_cuda_backend

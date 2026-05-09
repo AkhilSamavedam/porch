@@ -3,25 +3,25 @@
 
 namespace porch {
 
-backend backend_for(device placement) noexcept {
-    (void)placement;
-    return backend{backend_kind::cuda_jit};
-}
-
-bool is_backend_available(backend target) noexcept {
-    switch (target.kind()) {
-    case backend_kind::cuda_jit:
-        return cuda_jit::is_available();
+    backend backend_for(device placement) noexcept {
+        (void)placement;
+        return backend{backend_kind::cuda_jit};
     }
-    return false;
-}
 
-std::string_view backend_name(backend target) noexcept {
-    switch (target.kind()) {
-    case backend_kind::cuda_jit:
-        return "cuda-jit";
+    bool is_backend_available(backend target) noexcept {
+        switch (target.kind()) {
+        case backend_kind::cuda_jit:
+            return cuda_jit::is_available();
+        }
+        return false;
     }
-    return "unknown";
-}
+
+    std::string_view backend_name(backend target) noexcept {
+        switch (target.kind()) {
+        case backend_kind::cuda_jit:
+            return "cuda-jit";
+        }
+        return "unknown";
+    }
 
 } // namespace porch
