@@ -57,6 +57,15 @@ current stream, similar in spirit to LibTorch's per-thread current stream model.
 Each thread can enqueue work independently. Device buffers track the stream that
 last produced them; host copies and cross-stream dependencies synchronize that
 producer stream before reading.
+Internal streams have shared lifetime ownership. A device buffer keeps its
+producer stream alive until any dependent async free or cross-stream dependency
+has been made safe, so buffers can outlive the thread that produced them without
+holding a dangling stream handle.
+
+Device memory uses CUDA's stream-ordered allocation APIs
+`cuMemAllocAsync`/`cuMemFreeAsync`. Host transfers use the async copy APIs and
+then synchronize only where host visibility requires it. Direct legacy
+`cuMemAlloc`/`cuMemFree` allocation is not used.
 
 Library invariants and tensor lifetimes are protected for concurrent reads and
 lazy materialization. Concurrent logical mutation of the same tensor data is not
