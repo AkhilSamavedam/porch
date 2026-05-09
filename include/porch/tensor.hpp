@@ -3,6 +3,7 @@
 #include "porch/cuda_jit.hpp"
 #include "porch/types.hpp"
 
+#include <initializer_list>
 #include <memory>
 #include <span>
 #include <vector>
@@ -37,6 +38,36 @@ namespace porch {
       private:
         device_kind kind_;
         int ordinal_;
+    };
+
+    struct all_t {};
+
+    inline constexpr all_t all{};
+
+    struct slice {
+        index_t start;
+        index_t stop;
+        index_t step = 1;
+    };
+
+    class tensor_index {
+      public:
+        tensor_index(index_t index);
+        tensor_index(slice range);
+        tensor_index(all_t marker);
+
+      private:
+        friend class tensor;
+
+        enum class kind {
+            index,
+            slice,
+            all,
+        };
+
+        kind kind_;
+        index_t index_ = 0;
+        slice slice_{0, 0, 1};
     };
 
     class tensor_layout {
@@ -77,9 +108,14 @@ namespace porch {
         [[nodiscard]] std::span<const float32_t> data() const;
         [[nodiscard]] const cuda_jit::device_buffer&
         device_data() const noexcept;
+        [[nodiscard]] tensor
+        operator[](std::initializer_list<tensor_index> indices) const;
+        [[nodiscard]] tensor operator[](tensor_index index) const;
 
       private:
         friend tensor materialize(const tensor_expr& expression);
+
+        struct state;
 
         tensor(std::vector<index_t> shape, std::vector<float32_t> values,
                cuda_jit::device_buffer device_values, bool host_current,
@@ -88,11 +124,7 @@ namespace porch {
                cuda_jit::device_buffer device_values, bool host_current,
                device placement);
 
-        tensor_layout layout_;
-        mutable std::vector<float32_t> values_;
-        cuda_jit::device_buffer device_values_;
-        mutable bool host_current_ = true;
-        device placement_;
+        std::shared_ptr<state> state_;
     };
 
     class tensor_expr {

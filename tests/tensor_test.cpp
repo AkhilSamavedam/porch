@@ -25,6 +25,10 @@ namespace {
         assert(values.placement().ordinal() == 1);
     }
 
+    void tensor_is_small_handle() {
+        assert(sizeof(porch::tensor) <= 2 * sizeof(void*));
+    }
+
     void construction_builds_contiguous_layout() {
         const porch::tensor values{{2, 3, 4},
                                    std::vector<porch::float32_t>(24, 1.0F)};
@@ -37,6 +41,35 @@ namespace {
                                             values.strides().end()} ==
                 std::vector<porch::index_t>{12, 4, 1}));
         assert(&values.layout() != nullptr);
+    }
+
+    void bracket_slice_selects_contiguous_copy() {
+        const porch::tensor values{{6}, {0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F}};
+
+        const porch::tensor sliced = values[{porch::slice{1, 6, 2}}];
+
+        assert((std::vector<porch::index_t>{sliced.shape().begin(),
+                                            sliced.shape().end()} ==
+                std::vector<porch::index_t>{3}));
+        assert(sliced.is_contiguous());
+        assert((std::vector<porch::float32_t>{sliced.data().begin(),
+                                              sliced.data().end()} ==
+                std::vector<porch::float32_t>{1.0F, 3.0F, 5.0F}));
+    }
+
+    void bracket_slice_handles_multiple_dimensions() {
+        const porch::tensor values{{3, 4},
+                                   {0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F,
+                                    7.0F, 8.0F, 9.0F, 10.0F, 11.0F}};
+
+        const porch::tensor sliced = values[{1, porch::slice{1, 4, 2}}];
+
+        assert((std::vector<porch::index_t>{sliced.shape().begin(),
+                                            sliced.shape().end()} ==
+                std::vector<porch::index_t>{2}));
+        assert((std::vector<porch::float32_t>{sliced.data().begin(),
+                                              sliced.data().end()} ==
+                std::vector<porch::float32_t>{5.0F, 7.0F}));
     }
 
     void zeros_fills_gpu_tensor() {
@@ -184,8 +217,13 @@ namespace {
     constexpr test_case tests[] = {
         {"construction_tracks_shape_and_device",
          construction_tracks_shape_and_device, true},
+        {"tensor_is_small_handle", tensor_is_small_handle, false},
         {"construction_builds_contiguous_layout",
          construction_builds_contiguous_layout, true},
+        {"bracket_slice_selects_contiguous_copy",
+         bracket_slice_selects_contiguous_copy, true},
+        {"bracket_slice_handles_multiple_dimensions",
+         bracket_slice_handles_multiple_dimensions, true},
         {"zeros_fills_gpu_tensor", zeros_fills_gpu_tensor, true},
         {"add_uses_cuda_backend", add_uses_cuda_backend, true},
         {"subtract_uses_cuda_backend", subtract_uses_cuda_backend, true},

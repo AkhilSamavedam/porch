@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -29,6 +30,14 @@ namespace porch {
         float32_t scalar = 0.0F;
         std::shared_ptr<const node> lhs;
         std::shared_ptr<const node> rhs;
+    };
+
+    struct tensor::state {
+        tensor_layout layout;
+        mutable std::vector<float32_t> values;
+        cuda_jit::device_buffer device_values;
+        mutable bool host_current = true;
+        device placement;
     };
 
     namespace {
@@ -66,6 +75,40 @@ namespace porch {
                 expected_stride *= shape[index - 1];
             }
             return true;
+        }
+
+        index_t normalize_index(index_t index, index_t extent) {
+            if (index < 0) index += extent;
+            if (index < 0 || index >= extent) {
+                throw std::out_of_range("tensor index is out of bounds");
+            }
+            return index;
+        }
+
+        index_t normalize_slice_endpoint(index_t index, index_t extent) {
+            if (index < 0) index += extent;
+            if (index < 0) return 0;
+            if (index > extent) return extent;
+            return index;
+        }
+
+        size_t slice_length(index_t start, index_t stop, index_t step) {
+            if (step <= 0) {
+                throw std::invalid_argument(
+                    "tensor slice step must be positive");
+            }
+            if (stop <= start) return 0;
+            return static_cast<size_t>((stop - start + step - 1) / step);
+        }
+
+        size_t flat_index(std::span<const index_t> indices,
+                          std::span<const index_t> strides,
+                          index_t storage_offset) {
+            index_t offset = storage_offset;
+            for (size_t dim = 0; dim < indices.size(); ++dim) {
+                offset += indices[dim] * strides[dim];
+            }
+            return static_cast<size_t>(offset);
         }
 
         struct expression_context {
@@ -171,6 +214,14 @@ namespace porch {
 
     } // namespace
 
+    tensor_index::tensor_index(index_t index)
+        : kind_(kind::index), index_(index) {}
+
+    tensor_index::tensor_index(slice range)
+        : kind_(kind::slice), slice_(range) {}
+
+    tensor_index::tensor_index(all_t) : kind_(kind::all) {}
+
     tensor_layout::tensor_layout(std::vector<index_t> shape)
         : shape_(std::move(shape)), strides_(contiguous_strides(shape_)) {
         (void)checked_numel(shape_);
@@ -221,14 +272,17 @@ namespace porch {
 
     tensor::tensor(std::vector<index_t> shape, std::vector<float32_t> values,
                    device placement)
-        : layout_(tensor_layout{std::move(shape)}), values_(std::move(values)),
-          placement_(placement) {
-        const size_t expected = layout_.numel();
-        if (values_.size() != expected) {
+        : state_(std::make_shared<state>(state{tensor_layout{std::move(shape)},
+                                               std::move(values),
+                                               {},
+                                               true,
+                                               placement})) {
+        const size_t expected = state_->layout.numel();
+        if (state_->values.size() != expected) {
             throw std::invalid_argument(
                 "tensor data size does not match shape");
         }
-        device_values_ = cuda_jit::make_device_buffer(values_);
+        state_->device_values = cuda_jit::make_device_buffer(state_->values);
     }
 
     tensor::tensor(std::vector<index_t> shape, std::vector<float32_t> values,
@@ -245,57 +299,156 @@ namespace porch {
     tensor::tensor(tensor_layout layout, std::vector<float32_t> values,
                    cuda_jit::device_buffer device_values, bool host_current,
                    device placement)
-        : layout_(std::move(layout)), values_(std::move(values)),
-          device_values_(std::move(device_values)), host_current_(host_current),
-          placement_(placement) {
-        const size_t expected = layout_.numel();
-        if (values_.size() != expected) {
+        : state_(std::make_shared<state>(
+              state{std::move(layout), std::move(values),
+                    std::move(device_values), host_current, placement})) {
+        const size_t expected = state_->layout.numel();
+        if (state_->values.size() != expected) {
             throw std::invalid_argument(
                 "tensor data size does not match shape");
         }
-        if (!layout_.is_contiguous()) {
+        if (!state_->layout.is_contiguous()) {
             throw std::invalid_argument(
                 "non-contiguous tensor storage is not implemented yet");
         }
-        if (device_values_.size_bytes() < values_.size() * sizeof(float32_t)) {
+        if (state_->device_values.size_bytes() <
+            state_->values.size() * sizeof(float32_t)) {
             throw std::invalid_argument("tensor device storage is too small");
         }
     }
 
     std::span<const index_t> tensor::shape() const noexcept {
-        return layout_.shape();
+        return state_->layout.shape();
     }
 
     std::span<const index_t> tensor::strides() const noexcept {
-        return layout_.strides();
+        return state_->layout.strides();
     }
 
-    const tensor_layout& tensor::layout() const noexcept { return layout_; }
+    const tensor_layout& tensor::layout() const noexcept {
+        return state_->layout;
+    }
 
     index_t tensor::storage_offset() const noexcept {
-        return layout_.storage_offset();
+        return state_->layout.storage_offset();
     }
 
     bool tensor::is_contiguous() const noexcept {
-        return layout_.is_contiguous();
+        return state_->layout.is_contiguous();
     }
 
-    size_t tensor::rank() const noexcept { return layout_.rank(); }
+    size_t tensor::rank() const noexcept { return state_->layout.rank(); }
 
-    size_t tensor::numel() const noexcept { return values_.size(); }
+    size_t tensor::numel() const noexcept { return state_->values.size(); }
 
-    device tensor::placement() const noexcept { return placement_; }
+    device tensor::placement() const noexcept { return state_->placement; }
 
     std::span<const float32_t> tensor::data() const {
-        if (!host_current_) {
-            cuda_jit::copy_to_host(device_values_, values_);
-            host_current_ = true;
+        if (!state_->host_current) {
+            cuda_jit::copy_to_host(state_->device_values, state_->values);
+            state_->host_current = true;
         }
-        return values_;
+        return state_->values;
     }
 
     const cuda_jit::device_buffer& tensor::device_data() const noexcept {
-        return device_values_;
+        return state_->device_values;
+    }
+
+    tensor
+    tensor::operator[](std::initializer_list<tensor_index> indices) const {
+        if (indices.size() > rank()) {
+            throw std::invalid_argument("too many tensor indices");
+        }
+
+        struct dimension_selection {
+            index_t start = 0;
+            index_t step = 1;
+            index_t fixed = 0;
+            bool keeps_dimension = true;
+        };
+
+        std::vector<dimension_selection> selections;
+        selections.reserve(rank());
+        std::vector<index_t> output_shape;
+        output_shape.reserve(rank());
+
+        size_t dim = 0;
+        for (const tensor_index& index : indices) {
+            const index_t extent = shape()[dim];
+            dimension_selection selection;
+            switch (index.kind_) {
+            case tensor_index::kind::index:
+                selection.fixed = normalize_index(index.index_, extent);
+                selection.keeps_dimension = false;
+                break;
+            case tensor_index::kind::slice: {
+                const index_t start =
+                    normalize_slice_endpoint(index.slice_.start, extent);
+                const index_t stop =
+                    normalize_slice_endpoint(index.slice_.stop, extent);
+                const size_t length =
+                    slice_length(start, stop, index.slice_.step);
+                selection.start = start;
+                selection.step = index.slice_.step;
+                output_shape.push_back(static_cast<index_t>(length));
+                break;
+            }
+            case tensor_index::kind::all:
+                selection.start = 0;
+                selection.step = 1;
+                output_shape.push_back(extent);
+                break;
+            }
+            selections.push_back(selection);
+            ++dim;
+        }
+
+        for (; dim < rank(); ++dim) {
+            selections.push_back(dimension_selection{0, 1, 0, true});
+            output_shape.push_back(shape()[dim]);
+        }
+
+        const size_t output_count = checked_numel(output_shape);
+        std::vector<float32_t> output_values(output_count);
+        const std::span<const float32_t> source_values = data();
+
+        for (size_t linear = 0; linear < output_count; ++linear) {
+            size_t remaining = linear;
+            size_t output_dim = output_shape.size();
+            std::vector<index_t> source_indices(rank(), 0);
+
+            for (size_t source_dim = rank(); source_dim > 0; --source_dim) {
+                const dimension_selection& selection =
+                    selections[source_dim - 1];
+                if (!selection.keeps_dimension) {
+                    source_indices[source_dim - 1] = selection.fixed;
+                    continue;
+                }
+
+                --output_dim;
+                const index_t extent = output_shape[output_dim];
+                const index_t coordinate =
+                    extent == 0 ? 0
+                                : static_cast<index_t>(
+                                      remaining % static_cast<size_t>(extent));
+                if (extent != 0) {
+                    remaining /= static_cast<size_t>(extent);
+                }
+                source_indices[source_dim - 1] =
+                    selection.start + coordinate * selection.step;
+            }
+
+            output_values[linear] = source_values[flat_index(
+                source_indices, strides(), storage_offset())];
+        }
+
+        return tensor{std::move(output_shape), std::move(output_values),
+                      state_->placement};
+    }
+
+    tensor tensor::operator[](tensor_index index) const {
+        return (*this)[{index}];
     }
 
     tensor_expr::tensor_expr(const tensor& value)
