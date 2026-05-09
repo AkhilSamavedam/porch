@@ -46,6 +46,22 @@ The IR is not built at C++ compile time. It is recorded dynamically while the
 user program runs, which lets porch preserve laziness across ordinary statement
 boundaries without requiring a special compiler.
 
+## Threading model
+
+`porch::tensor` is a cheap shared handle and can be copied across threads. Lazy
+tensor materialization and host-cache updates are synchronized internally, so two
+threads touching the same pending tensor will not corrupt its state.
+
+The CUDA backend owns one process-wide CUDA context and uses a thread-local
+current stream, similar in spirit to LibTorch's per-thread current stream model.
+Each thread can enqueue work independently. Device buffers track the stream that
+last produced them; host copies and cross-stream dependencies synchronize that
+producer stream before reading.
+
+Library invariants and tensor lifetimes are protected for concurrent reads and
+lazy materialization. Concurrent logical mutation of the same tensor data is not
+part of the API yet and should still be treated as user-synchronized.
+
 ## Build and test
 
 ```sh

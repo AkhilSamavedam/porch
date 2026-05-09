@@ -385,30 +385,6 @@ namespace porch::cuda_jit {
             cuda_api api_;
         };
 
-        class device_memory {
-          public:
-            device_memory(const cuda_api& api, size_t bytes)
-                : api_(api), bytes_(bytes) {
-                if (bytes_ != 0)
-                    check_cuda(api_, api_.mem_alloc(&ptr_, bytes_),
-                               "cuMemAlloc");
-            }
-
-            device_memory(const device_memory&) = delete;
-            device_memory& operator=(const device_memory&) = delete;
-
-            ~device_memory() {
-                if (ptr_ != 0) (void)api_.mem_free(ptr_);
-            }
-
-            [[nodiscard]] cuda_device_ptr get() const noexcept { return ptr_; }
-
-          private:
-            cuda_api api_;
-            cuda_device_ptr ptr_ = 0;
-            size_t bytes_ = 0;
-        };
-
         class module_handle {
           public:
             module_handle(cuda_module module, cuda_api api) noexcept
@@ -443,26 +419,71 @@ namespace porch::cuda_jit {
                 check_cuda(runtime.api,
                            runtime.api.ctx_create(&context, 0, selected_device),
                            "cuCtxCreate");
-                check_cuda(runtime.api, runtime.api.stream_create(&stream, 0),
-                           "cuStreamCreate");
             }
 
             ~cuda_environment() {
-                if (stream != nullptr) (void)runtime.api.stream_destroy(stream);
+                if (context != nullptr) (void)runtime.api.ctx_destroy(context);
             }
 
             cuda_runtime runtime;
             cuda_context context = nullptr;
-            cuda_stream stream = nullptr;
-            std::vector<std::shared_ptr<module_handle>> live_modules;
+            std::mutex mutex;
         };
 
         [[nodiscard]] cuda_environment& environment() {
             static cuda_environment* instance = new cuda_environment();
-            check_cuda(instance->runtime.api,
-                       instance->runtime.api.ctx_set_current(instance->context),
-                       "cuCtxSetCurrent");
             return *instance;
+        }
+
+        void set_current_context(cuda_environment& env) {
+            check_cuda(env.runtime.api,
+                       env.runtime.api.ctx_set_current(env.context),
+                       "cuCtxSetCurrent");
+        }
+
+        struct stream_state {
+            explicit stream_state(cuda_environment& environment)
+                : env(&environment) {
+                std::scoped_lock lock{env->mutex};
+                set_current_context(*env);
+                check_cuda(env->runtime.api,
+                           env->runtime.api.stream_create(&stream, 0),
+                           "cuStreamCreate");
+            }
+
+            stream_state(const stream_state&) = delete;
+            stream_state& operator=(const stream_state&) = delete;
+
+            ~stream_state() {
+                if (stream == nullptr) return;
+
+                try {
+                    synchronize();
+                    std::scoped_lock lock{env->mutex};
+                    set_current_context(*env);
+                    (void)env->runtime.api.stream_destroy(stream);
+                }
+                catch (...) {
+                }
+            }
+
+            void synchronize() {
+                std::scoped_lock lock{env->mutex};
+                set_current_context(*env);
+                check_cuda(env->runtime.api,
+                           env->runtime.api.stream_synchronize(stream),
+                           "cuStreamSynchronize");
+                live_modules.clear();
+            }
+
+            cuda_environment* env = nullptr;
+            cuda_stream stream = nullptr;
+            std::vector<std::shared_ptr<module_handle>> live_modules;
+        };
+
+        stream_state& current_stream() {
+            thread_local stream_state state{environment()};
+            return state;
         }
 
     } // namespace
@@ -473,6 +494,8 @@ namespace porch::cuda_jit {
             if (bytes == 0) return;
 
             cuda_environment& env = environment();
+            std::scoped_lock lock{env.mutex};
+            set_current_context(env);
             check_cuda(env.runtime.api, env.runtime.api.mem_alloc(&ptr, bytes),
                        "cuMemAlloc");
         }
@@ -485,6 +508,8 @@ namespace porch::cuda_jit {
 
             try {
                 cuda_environment& env = environment();
+                std::scoped_lock lock{env.mutex};
+                set_current_context(env);
                 (void)env.runtime.api.mem_free(ptr);
             }
             catch (...) {
@@ -493,6 +518,8 @@ namespace porch::cuda_jit {
 
         cuda_device_ptr ptr = 0;
         size_t bytes = 0;
+        cuda_stream producer_stream = nullptr;
+        mutable std::mutex mutex;
     };
 
     namespace {
@@ -506,11 +533,25 @@ namespace porch::cuda_jit {
             }
         }
 
-        void synchronize(cuda_environment& env) {
+        cuda_stream producer_stream(const device_buffer_state& state) {
+            std::scoped_lock lock{state.mutex};
+            return state.producer_stream;
+        }
+
+        void set_producer_stream(device_buffer_state& state,
+                                 cuda_stream stream) {
+            std::scoped_lock lock{state.mutex};
+            state.producer_stream = stream;
+        }
+
+        void synchronize_stream(cuda_environment& env, cuda_stream stream) {
+            if (stream == nullptr) return;
+
+            std::scoped_lock lock{env.mutex};
+            set_current_context(env);
             check_cuda(env.runtime.api,
-                       env.runtime.api.stream_synchronize(env.stream),
+                       env.runtime.api.stream_synchronize(stream),
                        "cuStreamSynchronize");
-            env.live_modules.clear();
         }
 
     } // namespace
@@ -607,10 +648,13 @@ namespace porch::cuda_jit {
         require_device_bytes(buffer, source.size_bytes(), "target");
 
         cuda_environment& env = environment();
+        std::scoped_lock lock{env.mutex};
+        set_current_context(env);
         check_cuda(env.runtime.api,
                    env.runtime.api.memcpy_htod(
                        buffer.state_->ptr, source.data(), source.size_bytes()),
                    "cuMemcpyHtoD");
+        set_producer_stream(*buffer.state_, nullptr);
     }
 
     void copy_to_host(const device_buffer& buffer,
@@ -619,14 +663,16 @@ namespace porch::cuda_jit {
         require_device_bytes(buffer, target.size_bytes(), "source");
 
         cuda_environment& env = environment();
-        synchronize(env);
+        synchronize_stream(env, producer_stream(*buffer.state_));
+        std::scoped_lock lock{env.mutex};
+        set_current_context(env);
         check_cuda(env.runtime.api,
                    env.runtime.api.memcpy_dtoh(
                        target.data(), buffer.state_->ptr, target.size_bytes()),
                    "cuMemcpyDtoH");
     }
 
-    void synchronize() { synchronize(environment()); }
+    void synchronize() { current_stream().synchronize(); }
 
     void launch_elementwise_binary(std::string_view ptx,
                                    std::string_view function,
@@ -668,7 +714,16 @@ namespace porch::cuda_jit {
         }
         require_device_bytes(out, bytes, "out");
 
-        cuda_environment& env = environment();
+        stream_state& stream = current_stream();
+        cuda_environment& env = *stream.env;
+        for (const device_buffer* input : inputs) {
+            const cuda_stream input_stream = producer_stream(*input->state_);
+            if (input_stream != stream.stream)
+                synchronize_stream(env, input_stream);
+        }
+
+        std::scoped_lock lock{env.mutex};
+        set_current_context(env);
         const std::string ptx_text{ptx};
         cuda_module raw_module = nullptr;
         check_cuda(
@@ -677,7 +732,7 @@ namespace porch::cuda_jit {
             "cuModuleLoadData");
         auto module =
             std::make_shared<module_handle>(raw_module, env.runtime.api);
-        env.live_modules.push_back(module);
+        stream.live_modules.push_back(module);
 
         cuda_function kernel = nullptr;
         const std::string function_name{function};
@@ -706,9 +761,10 @@ namespace porch::cuda_jit {
 
         check_cuda(env.runtime.api,
                    env.runtime.api.launch_kernel(
-                       kernel, grid_size, 1, 1, block_size, 1, 1, 0, env.stream,
-                       params.data(), nullptr),
+                       kernel, grid_size, 1, 1, block_size, 1, 1, 0,
+                       stream.stream, params.data(), nullptr),
                    "cuLaunchKernel");
+        set_producer_stream(*out.state_, stream.stream);
     }
 
 } // namespace porch::cuda_jit

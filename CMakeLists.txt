@@ -11,6 +11,8 @@ project(
 
 option(PORCH_BUILD_TESTS "Build porch tests" ON)
 
+find_package(Threads REQUIRED)
+
 add_library(porch src/backend.cpp src/cuda_jit.cpp src/tensor.cpp)
 add_library(porch::porch ALIAS porch)
 
@@ -27,7 +29,7 @@ target_include_directories(
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(porch PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(porch PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
 
 if(MSVC)
     target_compile_options(porch PRIVATE /W4 /permissive-)

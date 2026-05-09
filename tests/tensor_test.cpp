@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
@@ -186,6 +187,83 @@ namespace {
                 std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F}));
     }
 
+    void concurrent_same_lazy_tensor_materializes_once_safely() {
+        const porch::tensor lhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
+        const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
+        const porch::tensor result = (lhs + rhs) * 2.0F - 1.0F;
+
+        std::exception_ptr left_error;
+        std::exception_ptr right_error;
+        std::vector<porch::float32_t> first;
+        std::vector<porch::float32_t> second;
+
+        std::thread left{[&] {
+            try {
+                first = result.cpu();
+            }
+            catch (...) {
+                left_error = std::current_exception();
+            }
+        }};
+        std::thread right{[&] {
+            try {
+                second = result.cpu();
+            }
+            catch (...) {
+                right_error = std::current_exception();
+            }
+        }};
+
+        left.join();
+        right.join();
+        if (left_error) std::rethrow_exception(left_error);
+        if (right_error) std::rethrow_exception(right_error);
+
+        const std::vector<porch::float32_t> expected{21.0F, 43.0F, 65.0F,
+                                                     87.0F};
+        assert(first == expected);
+        assert(second == expected);
+    }
+
+    void concurrent_independent_lazy_tensors_use_thread_streams() {
+        const porch::tensor lhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
+        const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
+        const porch::tensor left_result = lhs + rhs;
+        const porch::tensor right_result = rhs - lhs;
+
+        std::exception_ptr left_error;
+        std::exception_ptr right_error;
+        std::vector<porch::float32_t> left_values;
+        std::vector<porch::float32_t> right_values;
+
+        std::thread left{[&] {
+            try {
+                left_values = left_result.cpu();
+            }
+            catch (...) {
+                left_error = std::current_exception();
+            }
+        }};
+        std::thread right{[&] {
+            try {
+                right_values = right_result.cpu();
+            }
+            catch (...) {
+                right_error = std::current_exception();
+            }
+        }};
+
+        left.join();
+        right.join();
+        if (left_error) std::rethrow_exception(left_error);
+        if (right_error) std::rethrow_exception(right_error);
+
+        assert((left_values ==
+                std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F}));
+        assert((right_values ==
+                std::vector<porch::float32_t>{9.0F, 18.0F, 27.0F, 36.0F}));
+    }
+
     void scalar_elementwise_ops_use_cuda_backend() {
         const porch::tensor values{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
 
@@ -357,6 +435,10 @@ namespace {
          tensor_assignment_keeps_graph_lazy, true},
         {"explicit_gpu_sync_and_cpu_copy", explicit_gpu_sync_and_cpu_copy,
          true},
+        {"concurrent_same_lazy_tensor_materializes_once_safely",
+         concurrent_same_lazy_tensor_materializes_once_safely, true},
+        {"concurrent_independent_lazy_tensors_use_thread_streams",
+         concurrent_independent_lazy_tensors_use_thread_streams, true},
         {"scalar_elementwise_ops_use_cuda_backend",
          scalar_elementwise_ops_use_cuda_backend, true},
         {"matmul_uses_cuda_backend", matmul_uses_cuda_backend, true},

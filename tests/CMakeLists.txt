@@ -17,6 +17,8 @@ set(
     multiline_expression_stays_lazy_with_auto
     tensor_assignment_keeps_graph_lazy
     explicit_gpu_sync_and_cpu_copy
+    concurrent_same_lazy_tensor_materializes_once_safely
+    concurrent_independent_lazy_tensors_use_thread_streams
     scalar_elementwise_ops_use_cuda_backend
     matmul_uses_cuda_backend
     matmul_returns_lazy_expression
