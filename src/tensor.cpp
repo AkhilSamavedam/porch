@@ -16,12 +16,19 @@
 
 namespace porch {
 
+    tensor make_materialized_tensor(std::vector<index_t> shape,
+                                    std::vector<float32_t> values,
+                                    cuda_jit::device_buffer device_values,
+                                    bool host_current, device placement);
+
     enum class expr_kind {
         input,
         scalar,
         add,
         subtract,
         multiply,
+        matmul,
+        slice,
     };
 
     struct tensor_expr::node {
@@ -30,6 +37,9 @@ namespace porch {
         float32_t scalar = 0.0F;
         std::shared_ptr<const node> lhs;
         std::shared_ptr<const node> rhs;
+        std::vector<index_t> slice_shape;
+        std::vector<index_t> slice_strides;
+        index_t slice_offset = 0;
     };
 
     struct tensor::state {
@@ -41,6 +51,33 @@ namespace porch {
     };
 
     namespace {
+
+        std::shared_ptr<const tensor_expr::node> make_node(
+            expr_kind kind, const tensor* input = nullptr,
+            float32_t scalar = 0.0F,
+            std::shared_ptr<const tensor_expr::node> lhs = nullptr,
+            std::shared_ptr<const tensor_expr::node> rhs = nullptr) {
+            auto node = std::make_shared<tensor_expr::node>();
+            node->kind = kind;
+            node->input = input;
+            node->scalar = scalar;
+            node->lhs = std::move(lhs);
+            node->rhs = std::move(rhs);
+            return node;
+        }
+
+        std::shared_ptr<const tensor_expr::node> make_slice_node(
+            std::shared_ptr<const tensor_expr::node> source,
+            std::vector<index_t> shape, std::vector<index_t> strides,
+            index_t offset) {
+            auto node = std::make_shared<tensor_expr::node>();
+            node->kind = expr_kind::slice;
+            node->lhs = std::move(source);
+            node->slice_shape = std::move(shape);
+            node->slice_strides = std::move(strides);
+            node->slice_offset = offset;
+            return node;
+        }
 
         size_t checked_numel(std::span<const index_t> shape) {
             size_t count = 1;
@@ -54,8 +91,8 @@ namespace porch {
             return count;
         }
 
-        std::vector<index_t>
-        contiguous_strides(std::span<const index_t> shape) {
+        std::vector<index_t> contiguous_strides(
+            std::span<const index_t> shape) {
             std::vector<index_t> strides(shape.size(), 1);
             index_t stride = 1;
             for (size_t index = shape.size(); index > 0; --index) {
@@ -101,35 +138,20 @@ namespace porch {
             return static_cast<size_t>((stop - start + step - 1) / step);
         }
 
-        size_t flat_index(std::span<const index_t> indices,
-                          std::span<const index_t> strides,
-                          index_t storage_offset) {
-            index_t offset = storage_offset;
-            for (size_t dim = 0; dim < indices.size(); ++dim) {
-                offset += indices[dim] * strides[dim];
-            }
-            return static_cast<size_t>(offset);
-        }
-
         struct expression_context {
             std::vector<const tensor*> inputs;
             std::map<const tensor*, size_t> input_indices;
-            std::vector<index_t> shape;
             device placement;
             bool initialized = false;
+            size_t temporary_count = 0;
         };
 
         void record_input(expression_context& context, const tensor& value) {
             if (!context.initialized) {
-                context.shape.assign(value.shape().begin(),
-                                     value.shape().end());
                 context.placement = value.placement();
                 context.initialized = true;
             }
             else {
-                if (!std::ranges::equal(context.shape, value.shape()))
-                    throw std::invalid_argument(
-                        "tensor expression shapes must match");
                 if (context.placement != value.placement())
                     throw std::invalid_argument(
                         "tensor expression devices must match");
@@ -141,21 +163,59 @@ namespace porch {
             context.input_indices.emplace(&value, index);
         }
 
-        void analyze_expression(const tensor_expr::node& node,
-                                expression_context& context) {
+        struct expression_info {
+            std::vector<index_t> shape;
+            bool scalar = true;
+        };
+
+        void require_same_shape(const expression_info& lhs,
+                                const expression_info& rhs) {
+            if (lhs.scalar || rhs.scalar) return;
+            if (std::ranges::equal(lhs.shape, rhs.shape)) return;
+            throw std::invalid_argument("tensor expression shapes must match");
+        }
+
+        expression_info infer_expression(const tensor_expr::node& node,
+                                         expression_context& context) {
             switch (node.kind) {
             case expr_kind::input:
                 record_input(context, *node.input);
-                return;
+                return {
+                    {node.input->shape().begin(), node.input->shape().end()},
+                    false};
             case expr_kind::scalar:
-                return;
+                return {};
             case expr_kind::add:
             case expr_kind::subtract:
-            case expr_kind::multiply:
-                analyze_expression(*node.lhs, context);
-                analyze_expression(*node.rhs, context);
-                return;
+            case expr_kind::multiply: {
+                expression_info lhs = infer_expression(*node.lhs, context);
+                expression_info rhs = infer_expression(*node.rhs, context);
+                require_same_shape(lhs, rhs);
+                if (lhs.scalar) return rhs;
+                return lhs;
             }
+            case expr_kind::matmul: {
+                expression_info lhs = infer_expression(*node.lhs, context);
+                expression_info rhs = infer_expression(*node.rhs, context);
+                if (lhs.scalar || rhs.scalar) {
+                    throw std::invalid_argument(
+                        "matmul operands must be tensors");
+                }
+                if (lhs.shape.size() != 2 || rhs.shape.size() != 2) {
+                    throw std::invalid_argument(
+                        "matmul requires rank-2 tensors");
+                }
+                if (lhs.shape[1] != rhs.shape[0]) {
+                    throw std::invalid_argument(
+                        "matmul inner dimensions must match");
+                }
+                return {{lhs.shape[0], rhs.shape[1]}, false};
+            }
+            case expr_kind::slice:
+                (void)infer_expression(*node.lhs, context);
+                return {node.slice_shape, false};
+            }
+            throw std::invalid_argument("unknown tensor expression node");
         }
 
         std::string scalar_literal(float32_t value) {
@@ -171,29 +231,111 @@ namespace porch {
             return literal;
         }
 
+        std::string emit_strided_index(std::span<const index_t> shape,
+                                       std::span<const index_t> strides,
+                                       index_t storage_offset,
+                                       std::string_view index_expression) {
+            std::ostringstream expression;
+            expression << storage_offset;
+
+            index_t dimension_size = 1;
+            for (size_t dim = shape.size(); dim > 0; --dim) {
+                const size_t index = dim - 1;
+                if (strides[index] != 0) {
+                    expression << " + (((" << index_expression << ") / "
+                               << dimension_size << ") % " << shape[index]
+                               << ") * " << strides[index];
+                }
+                dimension_size *= shape[index];
+            }
+
+            return "(" + expression.str() + ")";
+        }
+
         std::string emit_expression(const tensor_expr::node& node,
-                                    const expression_context& context) {
+                                    expression_context& context,
+                                    std::string_view index_expression,
+                                    std::ostringstream& statements) {
             switch (node.kind) {
             case expr_kind::input:
                 return "in" +
                        std::to_string(context.input_indices.at(node.input)) +
-                       "[index]";
+                       "[" + std::string{index_expression} + "]";
             case expr_kind::scalar:
                 return scalar_literal(node.scalar);
             case expr_kind::add:
-                return "(" + emit_expression(*node.lhs, context) + " + " +
-                       emit_expression(*node.rhs, context) + ")";
+                return "(" +
+                       emit_expression(*node.lhs, context, index_expression,
+                                       statements) +
+                       " + " +
+                       emit_expression(*node.rhs, context, index_expression,
+                                       statements) +
+                       ")";
             case expr_kind::subtract:
-                return "(" + emit_expression(*node.lhs, context) + " - " +
-                       emit_expression(*node.rhs, context) + ")";
+                return "(" +
+                       emit_expression(*node.lhs, context, index_expression,
+                                       statements) +
+                       " - " +
+                       emit_expression(*node.rhs, context, index_expression,
+                                       statements) +
+                       ")";
             case expr_kind::multiply:
-                return "(" + emit_expression(*node.lhs, context) + " * " +
-                       emit_expression(*node.rhs, context) + ")";
+                return "(" +
+                       emit_expression(*node.lhs, context, index_expression,
+                                       statements) +
+                       " * " +
+                       emit_expression(*node.rhs, context, index_expression,
+                                       statements) +
+                       ")";
+            case expr_kind::matmul: {
+                expression_info lhs = infer_expression(*node.lhs, context);
+                expression_info rhs = infer_expression(*node.rhs, context);
+                const std::string prefix =
+                    "matmul" + std::to_string(context.temporary_count++);
+                const std::string row = prefix + "_row";
+                const std::string column = prefix + "_column";
+                const std::string inner_index = prefix + "_inner";
+                const std::string sum = prefix + "_sum";
+                const std::string lhs_index = "(" + row + " * " +
+                                              std::to_string(lhs.shape[1]) +
+                                              " + " + inner_index + ")";
+                const std::string rhs_index = "(" + inner_index + " * " +
+                                              std::to_string(rhs.shape[1]) +
+                                              " + " + column + ")";
+
+                statements << "    const uint64_t " << row << " = ("
+                           << index_expression << ") / " << rhs.shape[1]
+                           << ";\n"
+                           << "    const uint64_t " << column << " = ("
+                           << index_expression << ") % " << rhs.shape[1]
+                           << ";\n"
+                           << "    float " << sum << " = 0.0f;\n"
+                           << "    for (uint64_t " << inner_index << " = 0; "
+                           << inner_index << " < " << lhs.shape[1] << "; ++"
+                           << inner_index << ") {\n";
+                std::ostringstream loop_statements;
+                const std::string lhs_value = emit_expression(
+                    *node.lhs, context, lhs_index, loop_statements);
+                const std::string rhs_value = emit_expression(
+                    *node.rhs, context, rhs_index, loop_statements);
+                statements << loop_statements.str() << "        " << sum
+                           << " += " << lhs_value << " * " << rhs_value << ";\n"
+                           << "    }\n";
+                return sum;
+            }
+            case expr_kind::slice: {
+                const std::string source_index =
+                    emit_strided_index(node.slice_shape, node.slice_strides,
+                                       node.slice_offset, index_expression);
+                return emit_expression(*node.lhs, context, source_index,
+                                       statements);
+            }
             }
             throw std::invalid_argument("unknown tensor expression node");
         }
 
         std::string fused_kernel_source(const expression_context& context,
+                                        std::string_view statements,
                                         std::string_view expression) {
             std::ostringstream source;
             source << "typedef unsigned long long uint64_t;\n"
@@ -206,10 +348,50 @@ namespace porch {
             source << "float* out, uint64_t count) {\n"
                    << "    const uint64_t index = blockIdx.x * blockDim.x + "
                       "threadIdx.x;\n"
-                   << "    if (index < count) out[index] = " << expression
-                   << ";\n"
+                   << "    if (index >= count) return;\n"
+                   << statements << "    out[index] = " << expression << ";\n"
                    << "}\n";
             return source.str();
+        }
+
+        tensor materialize_expression(const tensor_expr::node& node) {
+            expression_context context;
+            expression_info info = infer_expression(node, context);
+            if (!context.initialized)
+                throw std::invalid_argument(
+                    "tensor expression must reference at least one tensor");
+            if (info.scalar)
+                throw std::invalid_argument(
+                    "scalar expression cannot materialize to a tensor");
+
+            const size_t count = checked_numel(info.shape);
+            std::vector<float32_t> result_values(count);
+            cuda_jit::device_buffer result_device{result_values.size() *
+                                                  sizeof(float32_t)};
+            if (result_values.empty()) {
+                return make_materialized_tensor(
+                    std::move(info.shape), std::move(result_values),
+                    std::move(result_device), true, context.placement);
+            }
+
+            std::ostringstream statements;
+            const std::string expression_source =
+                emit_expression(node, context, "index", statements);
+            const std::string kernel_source = fused_kernel_source(
+                context, statements.str(), expression_source);
+            const std::string ptx = cuda_jit::compile_to_ptx(kernel_source);
+
+            std::vector<const cuda_jit::device_buffer*> inputs;
+            inputs.reserve(context.inputs.size());
+            for (const tensor* input : context.inputs) {
+                inputs.push_back(&input->device_data());
+            }
+
+            cuda_jit::launch_fused_elementwise(ptx, "porch_fused_elementwise",
+                                               inputs, result_device, count);
+            return make_materialized_tensor(
+                std::move(info.shape), std::move(result_values),
+                std::move(result_device), false, context.placement);
         }
 
     } // namespace
@@ -355,32 +537,26 @@ namespace porch {
         return state_->device_values;
     }
 
-    tensor
-    tensor::operator[](std::initializer_list<tensor_index> indices) const {
+    tensor_expr tensor::operator[](
+        std::initializer_list<tensor_index> indices) const {
         if (indices.size() > rank()) {
             throw std::invalid_argument("too many tensor indices");
         }
 
-        struct dimension_selection {
-            index_t start = 0;
-            index_t step = 1;
-            index_t fixed = 0;
-            bool keeps_dimension = true;
-        };
-
-        std::vector<dimension_selection> selections;
-        selections.reserve(rank());
         std::vector<index_t> output_shape;
         output_shape.reserve(rank());
+        std::vector<index_t> output_source_strides;
+        output_source_strides.reserve(rank());
+        index_t source_offset = storage_offset();
 
         size_t dim = 0;
         for (const tensor_index& index : indices) {
             const index_t extent = shape()[dim];
-            dimension_selection selection;
+            const index_t source_stride = strides()[dim];
             switch (index.kind_) {
             case tensor_index::kind::index:
-                selection.fixed = normalize_index(index.index_, extent);
-                selection.keeps_dimension = false;
+                source_offset +=
+                    normalize_index(index.index_, extent) * source_stride;
                 break;
             case tensor_index::kind::slice: {
                 const index_t start =
@@ -389,75 +565,40 @@ namespace porch {
                     normalize_slice_endpoint(index.slice_.stop, extent);
                 const size_t length =
                     slice_length(start, stop, index.slice_.step);
-                selection.start = start;
-                selection.step = index.slice_.step;
+                source_offset += start * source_stride;
                 output_shape.push_back(static_cast<index_t>(length));
+                output_source_strides.push_back(source_stride *
+                                                index.slice_.step);
                 break;
             }
             case tensor_index::kind::all:
-                selection.start = 0;
-                selection.step = 1;
                 output_shape.push_back(extent);
+                output_source_strides.push_back(source_stride);
                 break;
             }
-            selections.push_back(selection);
             ++dim;
         }
 
         for (; dim < rank(); ++dim) {
-            selections.push_back(dimension_selection{0, 1, 0, true});
             output_shape.push_back(shape()[dim]);
+            output_source_strides.push_back(strides()[dim]);
         }
 
-        const size_t output_count = checked_numel(output_shape);
-        std::vector<float32_t> output_values(output_count);
-        const std::span<const float32_t> source_values = data();
-
-        for (size_t linear = 0; linear < output_count; ++linear) {
-            size_t remaining = linear;
-            size_t output_dim = output_shape.size();
-            std::vector<index_t> source_indices(rank(), 0);
-
-            for (size_t source_dim = rank(); source_dim > 0; --source_dim) {
-                const dimension_selection& selection =
-                    selections[source_dim - 1];
-                if (!selection.keeps_dimension) {
-                    source_indices[source_dim - 1] = selection.fixed;
-                    continue;
-                }
-
-                --output_dim;
-                const index_t extent = output_shape[output_dim];
-                const index_t coordinate =
-                    extent == 0 ? 0
-                                : static_cast<index_t>(
-                                      remaining % static_cast<size_t>(extent));
-                if (extent != 0) {
-                    remaining /= static_cast<size_t>(extent);
-                }
-                source_indices[source_dim - 1] =
-                    selection.start + coordinate * selection.step;
-            }
-
-            output_values[linear] = source_values[flat_index(
-                source_indices, strides(), storage_offset())];
-        }
-
-        return tensor{std::move(output_shape), std::move(output_values),
-                      state_->placement};
+        (void)checked_numel(output_shape);
+        return tensor_expr{
+            make_slice_node(tensor_expr{*this}.root_, std::move(output_shape),
+                            std::move(output_source_strides), source_offset)};
     }
 
-    tensor tensor::operator[](tensor_index index) const {
+    tensor_expr tensor::operator[](tensor_index index) const {
         return (*this)[{index}];
     }
 
     tensor_expr::tensor_expr(const tensor& value)
-        : root_(std::make_shared<node>(
-              node{expr_kind::input, &value, 0.0F, nullptr, nullptr})) {}
+        : root_(make_node(expr_kind::input, &value)) {}
 
     tensor_expr::tensor_expr(float32_t value)
-        : root_(std::make_shared<node>(
-              node{expr_kind::scalar, nullptr, value, nullptr, nullptr})) {}
+        : root_(make_node(expr_kind::scalar, nullptr, value)) {}
 
     tensor_expr::tensor_expr(std::shared_ptr<const node> root)
         : root_(std::move(root)) {}
@@ -488,56 +629,40 @@ namespace porch {
         return materialize(tensor_expr{lhs} * tensor_expr{rhs});
     }
 
+    tensor make_materialized_tensor(std::vector<index_t> shape,
+                                    std::vector<float32_t> values,
+                                    cuda_jit::device_buffer device_values,
+                                    bool host_current, device placement) {
+        return tensor{std::move(shape), std::move(values),
+                      std::move(device_values), host_current, placement};
+    }
+
+    tensor_expr matmul(tensor_expr lhs, tensor_expr rhs) {
+        return tensor_expr{make_node(expr_kind::matmul, nullptr, 0.0F,
+                                     std::move(lhs.root_),
+                                     std::move(rhs.root_))};
+    }
+
     tensor materialize(const tensor_expr& expression) {
-        expression_context context;
-        analyze_expression(*expression.root_, context);
-        if (!context.initialized)
-            throw std::invalid_argument(
-                "tensor expression must reference at least one tensor");
-
-        const size_t count = checked_numel(context.shape);
-        std::vector<float32_t> result_values(count);
-        cuda_jit::device_buffer result_device{result_values.size() *
-                                              sizeof(float32_t)};
-        if (result_values.empty()) {
-            return tensor{std::move(context.shape), std::move(result_values),
-                          std::move(result_device), context.placement};
-        }
-
-        const std::string expression_source =
-            emit_expression(*expression.root_, context);
-        const std::string kernel_source =
-            fused_kernel_source(context, expression_source);
-        const std::string ptx = cuda_jit::compile_to_ptx(kernel_source);
-
-        std::vector<const cuda_jit::device_buffer*> inputs;
-        inputs.reserve(context.inputs.size());
-        for (const tensor* input : context.inputs) {
-            inputs.push_back(&input->device_data());
-        }
-
-        cuda_jit::launch_fused_elementwise(ptx, "porch_fused_elementwise",
-                                           inputs, result_device, count);
-        return tensor{std::move(context.shape), std::move(result_values),
-                      std::move(result_device), false, context.placement};
+        return materialize_expression(*expression.root_);
     }
 
     tensor_expr operator+(tensor_expr lhs, tensor_expr rhs) {
-        return tensor_expr{std::make_shared<tensor_expr::node>(
-            tensor_expr::node{expr_kind::add, nullptr, 0.0F,
-                              std::move(lhs.root_), std::move(rhs.root_)})};
+        return tensor_expr{make_node(expr_kind::add, nullptr, 0.0F,
+                                     std::move(lhs.root_),
+                                     std::move(rhs.root_))};
     }
 
     tensor_expr operator-(tensor_expr lhs, tensor_expr rhs) {
-        return tensor_expr{std::make_shared<tensor_expr::node>(
-            tensor_expr::node{expr_kind::subtract, nullptr, 0.0F,
-                              std::move(lhs.root_), std::move(rhs.root_)})};
+        return tensor_expr{make_node(expr_kind::subtract, nullptr, 0.0F,
+                                     std::move(lhs.root_),
+                                     std::move(rhs.root_))};
     }
 
     tensor_expr operator*(tensor_expr lhs, tensor_expr rhs) {
-        return tensor_expr{std::make_shared<tensor_expr::node>(
-            tensor_expr::node{expr_kind::multiply, nullptr, 0.0F,
-                              std::move(lhs.root_), std::move(rhs.root_)})};
+        return tensor_expr{make_node(expr_kind::multiply, nullptr, 0.0F,
+                                     std::move(lhs.root_),
+                                     std::move(rhs.root_))};
     }
 
 } // namespace porch

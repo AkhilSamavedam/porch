@@ -5,6 +5,8 @@ TabWidth: 4
 UseTab: Never
 PointerAlignment: Left
 ReferenceAlignment: Left
+BreakAfterReturnType: None
+PenaltyReturnTypeOnItsOwnLine: 1000000
 AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 AllowShortLoopsOnASingleLine: true
 BreakBeforeBraces: Custom

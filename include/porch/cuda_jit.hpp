@@ -51,12 +51,11 @@ namespace porch::cuda_jit {
 
     [[nodiscard]] bool is_available() noexcept;
 
-    [[nodiscard]] std::string
-    compile_to_ptx(std::string_view source,
-                   const std::vector<std::string>& options = {});
+    [[nodiscard]] std::string compile_to_ptx(
+        std::string_view source, const std::vector<std::string>& options = {});
 
-    [[nodiscard]] device_buffer
-    make_device_buffer(std::span<const float32_t> source);
+    [[nodiscard]] device_buffer make_device_buffer(
+        std::span<const float32_t> source);
     void copy_to_device(device_buffer& buffer,
                         std::span<const float32_t> source);
     void copy_to_host(const device_buffer& buffer, std::span<float32_t> target);
@@ -73,9 +72,9 @@ namespace porch::cuda_jit {
                                    const device_buffer& rhs, device_buffer& out,
                                    size_t count);
 
-    void
-    launch_fused_elementwise(std::string_view ptx, std::string_view function,
-                             const std::vector<const device_buffer*>& inputs,
-                             device_buffer& out, size_t count);
+    void launch_fused_elementwise(
+        std::string_view ptx, std::string_view function,
+        const std::vector<const device_buffer*>& inputs, device_buffer& out,
+        size_t count);
 
 } // namespace porch::cuda_jit

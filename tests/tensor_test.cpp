@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -55,6 +56,19 @@ namespace {
         assert((std::vector<porch::float32_t>{sliced.data().begin(),
                                               sliced.data().end()} ==
                 std::vector<porch::float32_t>{1.0F, 3.0F, 5.0F}));
+    }
+
+    void bracket_slice_returns_lazy_expression() {
+        const porch::tensor values{{6}, {0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F}};
+
+        auto expression = values[{porch::slice{1, 6, 2}}];
+        static_assert(std::is_same_v<decltype(expression), porch::tensor_expr>);
+
+        const porch::tensor result = expression * 2.0F;
+
+        assert((std::vector<porch::float32_t>{result.data().begin(),
+                                              result.data().end()} ==
+                std::vector<porch::float32_t>{2.0F, 6.0F, 10.0F}));
     }
 
     void bracket_slice_handles_multiple_dimensions() {
@@ -153,6 +167,77 @@ namespace {
         assert(!result.device_data().empty());
     }
 
+    void matmul_uses_cuda_backend() {
+        const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
+        const porch::tensor rhs{{3, 2},
+                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+
+        const porch::tensor result = porch::matmul(lhs, rhs);
+
+        assert((std::vector<porch::index_t>{result.shape().begin(),
+                                            result.shape().end()} ==
+                std::vector<porch::index_t>{2, 2}));
+        assert((std::vector<porch::float32_t>{result.data().begin(),
+                                              result.data().end()} ==
+                std::vector<porch::float32_t>{58.0F, 64.0F, 139.0F, 154.0F}));
+        assert(!result.device_data().empty());
+    }
+
+    void matmul_returns_lazy_expression() {
+        const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
+        const porch::tensor rhs{{3, 2},
+                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+
+        auto expression = porch::matmul(lhs, rhs);
+        static_assert(std::is_same_v<decltype(expression), porch::tensor_expr>);
+
+        const porch::tensor result = expression;
+
+        assert((std::vector<porch::float32_t>{result.data().begin(),
+                                              result.data().end()} ==
+                std::vector<porch::float32_t>{58.0F, 64.0F, 139.0F, 154.0F}));
+    }
+
+    void matmul_composes_with_elementwise_ir() {
+        const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
+        const porch::tensor rhs{{3, 2},
+                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+
+        auto expression = porch::matmul(lhs, rhs) * 2.0F - 1.0F;
+        const porch::tensor result = expression;
+
+        assert((std::vector<porch::float32_t>{result.data().begin(),
+                                              result.data().end()} ==
+                std::vector<porch::float32_t>{115.0F, 127.0F, 277.0F, 307.0F}));
+    }
+
+    void matmul_accepts_expression_operands() {
+        const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
+        const porch::tensor rhs{{3, 2},
+                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+
+        auto expression = porch::matmul(lhs + lhs, rhs);
+        const porch::tensor result = expression;
+
+        assert((std::vector<porch::float32_t>{result.data().begin(),
+                                              result.data().end()} ==
+                std::vector<porch::float32_t>{116.0F, 128.0F, 278.0F, 308.0F}));
+    }
+
+    void matmul_rejects_invalid_shapes() {
+        const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
+        const porch::tensor rhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
+
+        bool threw = false;
+        try {
+            const porch::tensor result = porch::matmul(lhs, rhs);
+            (void)result;
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
     void rejects_invalid_shapes() {
         bool threw = false;
         try {
@@ -179,8 +264,9 @@ namespace {
 
     void cuda_jit_compiles_or_reports_missing_nvrtc() {
         constexpr std::string_view source = R"cuda(
-            extern "C" __global__ void
-            add_kernel(const float* lhs, const float* rhs, float* out) {
+            extern "C" __global__ void add_kernel(const float* lhs,
+                                                  const float* rhs,
+                                                  float* out) {
                 const int index = threadIdx.x;
                 out[index] = lhs[index] + rhs[index];
             }
@@ -222,6 +308,8 @@ namespace {
          construction_builds_contiguous_layout, true},
         {"bracket_slice_selects_contiguous_copy",
          bracket_slice_selects_contiguous_copy, true},
+        {"bracket_slice_returns_lazy_expression",
+         bracket_slice_returns_lazy_expression, true},
         {"bracket_slice_handles_multiple_dimensions",
          bracket_slice_handles_multiple_dimensions, true},
         {"zeros_fills_gpu_tensor", zeros_fills_gpu_tensor, true},
@@ -234,6 +322,14 @@ namespace {
          multiline_expression_stays_lazy_with_auto, true},
         {"scalar_elementwise_ops_use_cuda_backend",
          scalar_elementwise_ops_use_cuda_backend, true},
+        {"matmul_uses_cuda_backend", matmul_uses_cuda_backend, true},
+        {"matmul_returns_lazy_expression", matmul_returns_lazy_expression,
+         true},
+        {"matmul_composes_with_elementwise_ir",
+         matmul_composes_with_elementwise_ir, true},
+        {"matmul_accepts_expression_operands",
+         matmul_accepts_expression_operands, true},
+        {"matmul_rejects_invalid_shapes", matmul_rejects_invalid_shapes, true},
         {"rejects_invalid_shapes", rejects_invalid_shapes, false},
         {"gpu_devices_select_cuda_jit_backend",
          gpu_devices_select_cuda_jit_backend, false},

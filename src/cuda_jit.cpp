@@ -68,8 +68,8 @@ namespace porch::cuda_jit {
             void* handle_ = nullptr;
         };
 
-        [[nodiscard]] dynamic_library
-        open_any(std::initializer_list<const char*> names) {
+        [[nodiscard]] dynamic_library open_any(
+            std::initializer_list<const char*> names) {
             for (const char* name : names) {
                 dynamic_library library{name};
                 if (library) return library;
@@ -309,9 +309,8 @@ namespace porch::cuda_jit {
             return log;
         }
 
-        [[nodiscard]] std::string
-        cache_key(std::string_view source,
-                  const std::vector<std::string>& options) {
+        [[nodiscard]] std::string cache_key(
+            std::string_view source, const std::vector<std::string>& options) {
             std::ostringstream key;
             key << source.size() << ':' << source;
             for (const std::string& option : options) {
@@ -320,8 +319,7 @@ namespace porch::cuda_jit {
             return key.str();
         }
 
-        [[nodiscard]] std::unordered_map<std::string, std::string>&
-        ptx_cache() {
+        [[nodiscard]] std::unordered_map<std::string, std::string>& ptx_cache() {
             static std::unordered_map<std::string, std::string>* cache =
                 new std::unordered_map<std::string, std::string>();
             return *cache;
@@ -618,10 +616,10 @@ namespace porch::cuda_jit {
         launch_fused_elementwise(ptx, function, inputs, out, count);
     }
 
-    void
-    launch_fused_elementwise(std::string_view ptx, std::string_view function,
-                             const std::vector<const device_buffer*>& inputs,
-                             device_buffer& out, size_t count) {
+    void launch_fused_elementwise(
+        std::string_view ptx, std::string_view function,
+        const std::vector<const device_buffer*>& inputs, device_buffer& out,
+        size_t count) {
         if (count == 0) return;
 
         const size_t bytes = count * sizeof(float32_t);
