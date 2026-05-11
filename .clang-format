@@ -9,6 +9,7 @@ BreakAfterReturnType: None
 PenaltyReturnTypeOnItsOwnLine: 1000000
 AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 AllowShortLoopsOnASingleLine: true
+AlignAfterOpenBracket: BlockIndent
 BreakBeforeBraces: Custom
 IndentCaseLabels: true
 BraceWrapping:
