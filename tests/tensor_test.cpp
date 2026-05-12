@@ -479,6 +479,95 @@ namespace {
         assert(threw);
     }
 
+    void reshape_uses_lazy_device_ir() {
+        const porch::tensor values{
+            {2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
+        };
+
+        const porch::tensor result = porch::reshape(values + 1.0F, {3, 2});
+
+        assert(
+            (std::vector<porch::index_t>{
+                 result.shape().begin(), result.shape().end()
+             } == std::vector<porch::index_t>{3, 2})
+        );
+        assert(
+            (result.cpu() ==
+             std::vector<porch::float32_t>{2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F})
+        );
+    }
+
+    void transpose_uses_lazy_device_ir() {
+        const porch::tensor values{
+            {2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
+        };
+
+        const porch::tensor result = porch::transpose(values);
+
+        assert(
+            (std::vector<porch::index_t>{
+                 result.shape().begin(), result.shape().end()
+             } == std::vector<porch::index_t>{3, 2})
+        );
+        assert(
+            (result.cpu() ==
+             std::vector<porch::float32_t>{1.0F, 4.0F, 2.0F, 5.0F, 3.0F, 6.0F})
+        );
+    }
+
+    void broadcast_to_uses_lazy_device_ir() {
+        const porch::tensor values{{3}, {1.0F, 2.0F, 3.0F}};
+
+        const porch::tensor result = porch::broadcast_to(values, {2, 3}) * 2.0F;
+
+        assert(
+            (result.cpu() ==
+             std::vector<porch::float32_t>{2.0F, 4.0F, 6.0F, 2.0F, 4.0F, 6.0F})
+        );
+    }
+
+    void concat_uses_lazy_device_ir() {
+        const porch::tensor lhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
+        const porch::tensor rhs{{2, 1}, {10.0F, 20.0F}};
+
+        const porch::tensor result = porch::concat(lhs, rhs, 1);
+
+        assert(
+            (std::vector<porch::index_t>{
+                 result.shape().begin(), result.shape().end()
+             } == std::vector<porch::index_t>{2, 3})
+        );
+        assert((
+            result.cpu() ==
+            std::vector<porch::float32_t>{1.0F, 2.0F, 10.0F, 3.0F, 4.0F, 20.0F}
+        ));
+    }
+
+    void reductions_use_lazy_device_ir() {
+        const porch::tensor values{
+            {2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
+        };
+
+        const porch::tensor column_sums = porch::sum(values, 0);
+        const porch::tensor row_maxes = porch::max(values, 1);
+
+        assert((
+            column_sums.cpu() == std::vector<porch::float32_t>{5.0F, 7.0F, 9.0F}
+        ));
+        assert((row_maxes.cpu() == std::vector<porch::float32_t>{3.0F, 6.0F}));
+    }
+
+    void exp_uses_lazy_device_ir() {
+        const porch::tensor values{{3}, {-1.0F, 0.0F, 2.0F}};
+
+        const porch::tensor result = porch::exp(values);
+        const std::vector<porch::float32_t> host = result.cpu();
+
+        assert(host[0] > 0.36F && host[0] < 0.37F);
+        assert(host[1] == 1.0F);
+        assert(host[2] > 7.38F && host[2] < 7.39F);
+    }
+
     void rejects_invalid_shapes() {
         bool threw = false;
         try {
@@ -592,6 +681,13 @@ namespace {
         {"matmul_accepts_expression_operands",
          matmul_accepts_expression_operands, true},
         {"matmul_rejects_invalid_shapes", matmul_rejects_invalid_shapes, true},
+        {"reshape_uses_lazy_device_ir", reshape_uses_lazy_device_ir, true},
+        {"transpose_uses_lazy_device_ir", transpose_uses_lazy_device_ir, true},
+        {"broadcast_to_uses_lazy_device_ir", broadcast_to_uses_lazy_device_ir,
+         true},
+        {"concat_uses_lazy_device_ir", concat_uses_lazy_device_ir, true},
+        {"reductions_use_lazy_device_ir", reductions_use_lazy_device_ir, true},
+        {"exp_uses_lazy_device_ir", exp_uses_lazy_device_ir, true},
         {"rejects_invalid_shapes", rejects_invalid_shapes, false},
         {"gpu_devices_select_cuda_jit_backend",
          gpu_devices_select_cuda_jit_backend, false},

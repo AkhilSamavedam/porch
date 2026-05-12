@@ -29,6 +29,12 @@ set(
     matmul_composes_with_elementwise_ir
     matmul_accepts_expression_operands
     matmul_rejects_invalid_shapes
+    reshape_uses_lazy_device_ir
+    transpose_uses_lazy_device_ir
+    broadcast_to_uses_lazy_device_ir
+    concat_uses_lazy_device_ir
+    reductions_use_lazy_device_ir
+    exp_uses_lazy_device_ir
     rejects_invalid_shapes
     gpu_devices_select_cuda_jit_backend
     cuda_jit_availability_matches_backend_availability

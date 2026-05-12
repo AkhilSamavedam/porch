@@ -30,6 +30,13 @@ namespace porch {
         multiply,
         matmul,
         slice,
+        reshape,
+        transpose,
+        broadcast,
+        concat,
+        sum,
+        max,
+        exp,
     };
 
     struct tensor_expr::node {
@@ -40,7 +47,9 @@ namespace porch {
         std::shared_ptr<const node> rhs;
         std::vector<index_t> slice_shape;
         std::vector<index_t> slice_strides;
+        std::vector<index_t> shape;
         index_t slice_offset = 0;
+        size_t axis = 0;
     };
 
     struct realized_storage {
@@ -133,6 +142,40 @@ namespace porch {
             node->slice_shape = std::move(shape);
             node->slice_strides = std::move(strides);
             node->slice_offset = offset;
+            return node;
+        }
+
+        std::shared_ptr<const tensor_expr::node> make_shape_node(
+            expr_kind kind, std::shared_ptr<const tensor_expr::node> source,
+            std::vector<index_t> shape
+        ) {
+            auto node = std::make_shared<tensor_expr::node>();
+            node->kind = kind;
+            node->lhs = std::move(source);
+            node->shape = std::move(shape);
+            return node;
+        }
+
+        std::shared_ptr<const tensor_expr::node> make_axis_node(
+            expr_kind kind, std::shared_ptr<const tensor_expr::node> source,
+            size_t axis
+        ) {
+            auto node = std::make_shared<tensor_expr::node>();
+            node->kind = kind;
+            node->lhs = std::move(source);
+            node->axis = axis;
+            return node;
+        }
+
+        std::shared_ptr<const tensor_expr::node> make_concat_node(
+            std::shared_ptr<const tensor_expr::node> lhs,
+            std::shared_ptr<const tensor_expr::node> rhs, size_t axis
+        ) {
+            auto node = std::make_shared<tensor_expr::node>();
+            node->kind = expr_kind::concat;
+            node->lhs = std::move(lhs);
+            node->rhs = std::move(rhs);
+            node->axis = axis;
             return node;
         }
 
@@ -238,6 +281,49 @@ namespace porch {
             throw std::invalid_argument("tensor expression shapes must match");
         }
 
+        void require_axis(
+            size_t axis, size_t rank, std::string_view operation
+        ) {
+            if (axis >= rank) {
+                throw std::invalid_argument(
+                    std::string{operation} + " axis is out of bounds"
+                );
+            }
+        }
+
+        std::vector<index_t> reduced_shape(
+            std::span<const index_t> shape, size_t axis
+        ) {
+            std::vector<index_t> result;
+            result.reserve(shape.size() - 1);
+            for (size_t dim = 0; dim < shape.size(); ++dim) {
+                if (dim != axis) result.push_back(shape[dim]);
+            }
+            if (result.empty()) result.push_back(1);
+            return result;
+        }
+
+        void require_broadcastable(
+            std::span<const index_t> source, std::span<const index_t> target
+        ) {
+            if (source.size() > target.size()) {
+                throw std::invalid_argument(
+                    "broadcast target rank must be at least source rank"
+                );
+            }
+
+            const size_t offset = target.size() - source.size();
+            for (size_t dim = 0; dim < source.size(); ++dim) {
+                const index_t source_extent = source[dim];
+                const index_t target_extent = target[offset + dim];
+                if (source_extent != 1 && source_extent != target_extent) {
+                    throw std::invalid_argument(
+                        "broadcast shapes are not compatible"
+                    );
+                }
+            }
+        }
+
         expression_info infer_expression(
             const tensor_expr::node& node, expression_context& context
         ) {
@@ -283,6 +369,88 @@ namespace porch {
                 case expr_kind::slice:
                     (void)infer_expression(*node.lhs, context);
                     return {node.slice_shape, false};
+                case expr_kind::reshape: {
+                    expression_info source =
+                        infer_expression(*node.lhs, context);
+                    if (source.scalar) {
+                        throw std::invalid_argument(
+                            "reshape operand must be a tensor"
+                        );
+                    }
+                    if (checked_numel(source.shape) !=
+                        checked_numel(node.shape)) {
+                        throw std::invalid_argument(
+                            "reshape must preserve tensor element count"
+                        );
+                    }
+                    return {node.shape, false};
+                }
+                case expr_kind::transpose: {
+                    expression_info source =
+                        infer_expression(*node.lhs, context);
+                    if (source.scalar) {
+                        throw std::invalid_argument(
+                            "transpose operand must be a tensor"
+                        );
+                    }
+                    if (source.shape.size() != 2) {
+                        throw std::invalid_argument(
+                            "transpose currently requires a rank-2 tensor"
+                        );
+                    }
+                    return {{source.shape[1], source.shape[0]}, false};
+                }
+                case expr_kind::broadcast: {
+                    expression_info source =
+                        infer_expression(*node.lhs, context);
+                    if (source.scalar) return {node.shape, false};
+                    require_broadcastable(source.shape, node.shape);
+                    return {node.shape, false};
+                }
+                case expr_kind::concat: {
+                    expression_info lhs = infer_expression(*node.lhs, context);
+                    expression_info rhs = infer_expression(*node.rhs, context);
+                    if (lhs.scalar || rhs.scalar) {
+                        throw std::invalid_argument(
+                            "concat operands must be tensors"
+                        );
+                    }
+                    if (lhs.shape.size() != rhs.shape.size()) {
+                        throw std::invalid_argument(
+                            "concat operands must have the same rank"
+                        );
+                    }
+                    require_axis(node.axis, lhs.shape.size(), "concat");
+                    std::vector<index_t> shape = lhs.shape;
+                    for (size_t dim = 0; dim < shape.size(); ++dim) {
+                        if (dim == node.axis) continue;
+                        if (lhs.shape[dim] != rhs.shape[dim]) {
+                            throw std::invalid_argument(
+                                "concat non-axis dimensions must match"
+                            );
+                        }
+                    }
+                    shape[node.axis] += rhs.shape[node.axis];
+                    return {std::move(shape), false};
+                }
+                case expr_kind::sum:
+                case expr_kind::max: {
+                    expression_info source =
+                        infer_expression(*node.lhs, context);
+                    if (source.scalar) {
+                        throw std::invalid_argument(
+                            "reduction operand must be a tensor"
+                        );
+                    }
+                    require_axis(node.axis, source.shape.size(), "reduction");
+                    return {reduced_shape(source.shape, node.axis), false};
+                }
+                case expr_kind::exp: {
+                    expression_info source =
+                        infer_expression(*node.lhs, context);
+                    if (source.scalar) return source;
+                    return {source.shape, false};
+                }
             }
             throw std::invalid_argument("unknown tensor expression node");
         }
@@ -316,6 +484,82 @@ namespace porch {
                                << ") * " << strides[index];
                 }
                 dimension_size *= shape[index];
+            }
+
+            return "(" + expression.str() + ")";
+        }
+
+        std::string emit_broadcast_index(
+            std::span<const index_t> source_shape,
+            std::span<const index_t> target_shape,
+            std::string_view index_expression
+        ) {
+            std::ostringstream expression;
+            expression << "0";
+
+            const std::vector<index_t> source_strides =
+                contiguous_strides(source_shape);
+            index_t target_dimension_size = 1;
+            std::vector<index_t> target_dimension_sizes(target_shape.size(), 1);
+            for (size_t dim = target_shape.size(); dim > 0; --dim) {
+                target_dimension_sizes[dim - 1] = target_dimension_size;
+                target_dimension_size *= target_shape[dim - 1];
+            }
+
+            const size_t offset = target_shape.size() - source_shape.size();
+            for (size_t dim = 0; dim < source_shape.size(); ++dim) {
+                if (source_shape[dim] == 1) continue;
+                const size_t target_dim = offset + dim;
+                expression << " + (((" << index_expression << ") / "
+                           << target_dimension_sizes[target_dim] << ") % "
+                           << target_shape[target_dim] << ") * "
+                           << source_strides[dim];
+            }
+
+            return "(" + expression.str() + ")";
+        }
+
+        std::string emit_transpose_index(
+            std::span<const index_t> source_shape,
+            std::string_view index_expression
+        ) {
+            return "(((" + std::string{index_expression} + ") % " +
+                   std::to_string(source_shape[0]) + ") * " +
+                   std::to_string(source_shape[1]) + " + ((" +
+                   std::string{index_expression} + ") / " +
+                   std::to_string(source_shape[0]) + "))";
+        }
+
+        std::string emit_reduction_source_index(
+            std::span<const index_t> source_shape, size_t axis,
+            std::string_view index_expression, std::string_view axis_index
+        ) {
+            const std::vector<index_t> source_strides =
+                contiguous_strides(source_shape);
+            const std::vector<index_t> output_shape =
+                reduced_shape(source_shape, axis);
+            std::vector<index_t> output_dimension_sizes(output_shape.size(), 1);
+            index_t output_dimension_size = 1;
+            for (size_t dim = output_shape.size(); dim > 0; --dim) {
+                output_dimension_sizes[dim - 1] = output_dimension_size;
+                output_dimension_size *= output_shape[dim - 1];
+            }
+
+            std::ostringstream expression;
+            expression << "0";
+            size_t output_dim = 0;
+            for (size_t dim = 0; dim < source_shape.size(); ++dim) {
+                if (dim == axis) {
+                    expression << " + (" << axis_index << ") * "
+                               << source_strides[dim];
+                    continue;
+                }
+
+                expression << " + (((" << index_expression << ") / "
+                           << output_dimension_sizes[output_dim] << ") % "
+                           << output_shape[output_dim] << ") * "
+                           << source_strides[dim];
+                ++output_dim;
             }
 
             return "(" + expression.str() + ")";
@@ -411,6 +655,131 @@ namespace porch {
                         *node.lhs, context, source_index, statements
                     );
                 }
+                case expr_kind::reshape:
+                    return emit_expression(
+                        *node.lhs, context, index_expression, statements
+                    );
+                case expr_kind::transpose: {
+                    const expression_info source =
+                        infer_expression(*node.lhs, context);
+                    const std::string source_index =
+                        emit_transpose_index(source.shape, index_expression);
+                    return emit_expression(
+                        *node.lhs, context, source_index, statements
+                    );
+                }
+                case expr_kind::broadcast: {
+                    const expression_info source =
+                        infer_expression(*node.lhs, context);
+                    if (source.scalar) {
+                        return emit_expression(
+                            *node.lhs, context, index_expression, statements
+                        );
+                    }
+                    const std::string source_index = emit_broadcast_index(
+                        source.shape, node.shape, index_expression
+                    );
+                    return emit_expression(
+                        *node.lhs, context, source_index, statements
+                    );
+                }
+                case expr_kind::concat: {
+                    const expression_info lhs =
+                        infer_expression(*node.lhs, context);
+                    const expression_info rhs =
+                        infer_expression(*node.rhs, context);
+                    std::vector<index_t> output_shape = lhs.shape;
+                    output_shape[node.axis] += rhs.shape[node.axis];
+                    const std::vector<index_t> output_strides =
+                        contiguous_strides(output_shape);
+                    const std::string prefix =
+                        "concat" + std::to_string(context.temporary_count++);
+                    const std::string axis_coord = prefix + "_axis";
+                    const std::string lhs_index = emit_strided_index(
+                        output_shape, contiguous_strides(lhs.shape), 0,
+                        index_expression
+                    );
+
+                    std::vector<index_t> rhs_strides =
+                        contiguous_strides(rhs.shape);
+                    std::ostringstream rhs_expression;
+                    rhs_expression << "0";
+                    for (size_t dim = 0; dim < output_shape.size(); ++dim) {
+                        const std::string coord =
+                            "(((" + std::string{index_expression} + ") / " +
+                            std::to_string(output_strides[dim]) + ") % " +
+                            std::to_string(output_shape[dim]) + ")";
+                        if (dim == node.axis) {
+                            rhs_expression << " + ((" << coord << ") - "
+                                           << lhs.shape[dim] << ") * "
+                                           << rhs_strides[dim];
+                        }
+                        else {
+                            rhs_expression << " + (" << coord << ") * "
+                                           << rhs_strides[dim];
+                        }
+                    }
+
+                    statements << "    const uint64_t " << axis_coord << " = (("
+                               << index_expression << ") / "
+                               << output_strides[node.axis] << ") % "
+                               << output_shape[node.axis] << ";\n";
+                    return "((" + axis_coord + " < " +
+                           std::to_string(lhs.shape[node.axis]) + ") ? " +
+                           emit_expression(
+                               *node.lhs, context, lhs_index, statements
+                           ) +
+                           " : " +
+                           emit_expression(
+                               *node.rhs, context,
+                               "(" + rhs_expression.str() + ")", statements
+                           ) +
+                           ")";
+                }
+                case expr_kind::sum:
+                case expr_kind::max: {
+                    const expression_info source =
+                        infer_expression(*node.lhs, context);
+                    const std::string prefix =
+                        "reduce" + std::to_string(context.temporary_count++);
+                    const std::string axis_index = prefix + "_axis";
+                    const std::string total = prefix + "_total";
+                    const std::string initial_value =
+                        node.kind == expr_kind::sum ? "0.0f" : "-FLT_MAX";
+                    statements << "    float " << total << " = "
+                               << initial_value << ";\n"
+                               << "    for (uint64_t " << axis_index << " = 0; "
+                               << axis_index << " < " << source.shape[node.axis]
+                               << "; ++" << axis_index << ") {\n";
+                    std::ostringstream loop_statements;
+                    const std::string source_index =
+                        emit_reduction_source_index(
+                            source.shape, node.axis, index_expression,
+                            axis_index
+                        );
+                    const std::string value = emit_expression(
+                        *node.lhs, context, source_index, loop_statements
+                    );
+                    statements << loop_statements.str();
+                    if (node.kind == expr_kind::sum) {
+                        statements << "        " << total << " += " << value
+                                   << ";\n";
+                    }
+                    else {
+                        statements << "        " << total << " = " << total
+                                   << " > " << value << " ? " << total << " : "
+                                   << value << ";\n";
+                    }
+                    statements << "    }\n";
+                    return total;
+                }
+                case expr_kind::exp: {
+                    return "__expf(" +
+                           emit_expression(
+                               *node.lhs, context, index_expression, statements
+                           ) +
+                           ")";
+                }
             }
             throw std::invalid_argument("unknown tensor expression node");
         }
@@ -421,6 +790,7 @@ namespace porch {
         ) {
             std::ostringstream source;
             source << "typedef unsigned long long uint64_t;\n"
+                   << "#define FLT_MAX 3.4028234663852886e+38f\n"
                    << "extern \"C\" __global__ void porch_fused_elementwise(";
             for (size_t index = 0; index < context.inputs.size(); ++index) {
                 if (index != 0) source << ", ";
@@ -811,6 +1181,48 @@ namespace porch {
             expr_kind::matmul, nullptr, 0.0F, std::move(lhs.root_),
             std::move(rhs.root_)
         )};
+    }
+
+    tensor_expr reshape(tensor_expr value, std::vector<index_t> shape) {
+        return tensor_expr{make_shape_node(
+            expr_kind::reshape, std::move(value.root_), std::move(shape)
+        )};
+    }
+
+    tensor_expr transpose(tensor_expr value) {
+        return tensor_expr{make_node(
+            expr_kind::transpose, nullptr, 0.0F, std::move(value.root_)
+        )};
+    }
+
+    tensor_expr broadcast_to(tensor_expr value, std::vector<index_t> shape) {
+        return tensor_expr{make_shape_node(
+            expr_kind::broadcast, std::move(value.root_), std::move(shape)
+        )};
+    }
+
+    tensor_expr concat(tensor_expr lhs, tensor_expr rhs, size_t axis) {
+        return tensor_expr{
+            make_concat_node(std::move(lhs.root_), std::move(rhs.root_), axis)
+        };
+    }
+
+    tensor_expr sum(tensor_expr value, size_t axis) {
+        return tensor_expr{
+            make_axis_node(expr_kind::sum, std::move(value.root_), axis)
+        };
+    }
+
+    tensor_expr max(tensor_expr value, size_t axis) {
+        return tensor_expr{
+            make_axis_node(expr_kind::max, std::move(value.root_), axis)
+        };
+    }
+
+    tensor_expr exp(tensor_expr value) {
+        return tensor_expr{
+            make_node(expr_kind::exp, nullptr, 0.0F, std::move(value.root_))
+        };
     }
 
     tensor materialize(const tensor_expr& expression) {

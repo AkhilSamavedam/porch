@@ -167,6 +167,19 @@ namespace porch {
         friend tensor_expr operator-(tensor_expr lhs, tensor_expr rhs);
         friend tensor_expr operator*(tensor_expr lhs, tensor_expr rhs);
         friend tensor_expr matmul(tensor_expr lhs, tensor_expr rhs);
+        friend tensor_expr reshape(
+            tensor_expr value, std::vector<index_t> shape
+        );
+        friend tensor_expr transpose(tensor_expr value);
+        friend tensor_expr broadcast_to(
+            tensor_expr value, std::vector<index_t> shape
+        );
+        friend tensor_expr concat(
+            tensor_expr lhs, tensor_expr rhs, size_t axis
+        );
+        friend tensor_expr sum(tensor_expr value, size_t axis);
+        friend tensor_expr max(tensor_expr value, size_t axis);
+        friend tensor_expr exp(tensor_expr value);
         friend class tensor;
         friend tensor materialize(const tensor_expr& expression);
 
@@ -183,6 +196,19 @@ namespace porch {
     [[nodiscard]] tensor subtract(const tensor& lhs, const tensor& rhs);
     [[nodiscard]] tensor multiply(const tensor& lhs, const tensor& rhs);
     [[nodiscard]] tensor_expr matmul(tensor_expr lhs, tensor_expr rhs);
+    [[nodiscard]] tensor_expr reshape(
+        tensor_expr value, std::vector<index_t> shape
+    );
+    [[nodiscard]] tensor_expr transpose(tensor_expr value);
+    [[nodiscard]] tensor_expr broadcast_to(
+        tensor_expr value, std::vector<index_t> shape
+    );
+    [[nodiscard]] tensor_expr concat(
+        tensor_expr lhs, tensor_expr rhs, size_t axis
+    );
+    [[nodiscard]] tensor_expr sum(tensor_expr value, size_t axis);
+    [[nodiscard]] tensor_expr max(tensor_expr value, size_t axis);
+    [[nodiscard]] tensor_expr exp(tensor_expr value);
 
     [[nodiscard]] tensor materialize(const tensor_expr& expression);
 
