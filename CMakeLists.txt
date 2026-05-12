@@ -13,7 +13,7 @@ option(PORCH_BUILD_TESTS "Build porch tests" ON)
 
 find_package(Threads REQUIRED)
 
-add_library(porch src/backend.cpp src/cuda_jit.cpp src/tensor.cpp)
+add_library(porch src/backend.cpp src/cuda_jit.cpp src/ops.cpp src/tensor.cpp)
 add_library(porch::porch ALIAS porch)
 
 target_compile_features(porch PUBLIC cxx_std_20)

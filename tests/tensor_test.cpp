@@ -1,5 +1,6 @@
 #include "porch/backend.hpp"
 #include "porch/cuda_jit.hpp"
+#include "porch/ops.hpp"
 #include "porch/tensor.hpp"
 
 #include <cassert>
@@ -621,6 +622,40 @@ namespace {
         }
     }
 
+    void relu_compound_op_uses_primitives() {
+        const porch::tensor values{{4}, {-2.0F, -0.5F, 0.0F, 3.0F}};
+
+        const porch::tensor result = porch::relu(values);
+
+        assert(
+            (result.cpu() ==
+             std::vector<porch::float32_t>{0.0F, 0.0F, 0.0F, 3.0F})
+        );
+    }
+
+    void softmax_compound_op_uses_primitives() {
+        const porch::tensor values{{2, 2}, {0.0F, 0.0F, 1.0F, 1.0F}};
+
+        const porch::tensor result = porch::softmax(values, 1);
+        const std::vector<porch::float32_t> host = result.cpu();
+
+        assert(host.size() == 4);
+        for (const porch::float32_t value : host) {
+            assert(value > 0.49F && value < 0.51F);
+        }
+    }
+
+    void logistic_compound_op_uses_primitives() {
+        const porch::tensor values{{3}, {-1.0F, 0.0F, 1.0F}};
+
+        const porch::tensor result = porch::logistic(values);
+        const std::vector<porch::float32_t> host = result.cpu();
+
+        assert(host[0] > 0.26F && host[0] < 0.27F);
+        assert(host[1] == 0.5F);
+        assert(host[2] > 0.73F && host[2] < 0.74F);
+    }
+
     void exp_uses_lazy_device_ir() {
         const porch::tensor values{{3}, {-1.0F, 0.0F, 2.0F}};
 
@@ -831,6 +866,12 @@ namespace {
          nested_reductions_materialize_with_block_reduction, true},
         {"softmax_style_expression_uses_nested_block_reduction",
          softmax_style_expression_uses_nested_block_reduction, true},
+        {"relu_compound_op_uses_primitives", relu_compound_op_uses_primitives,
+         true},
+        {"softmax_compound_op_uses_primitives",
+         softmax_compound_op_uses_primitives, true},
+        {"logistic_compound_op_uses_primitives",
+         logistic_compound_op_uses_primitives, true},
         {"exp_uses_lazy_device_ir", exp_uses_lazy_device_ir, true},
         {"divide_and_reciprocal_use_lazy_device_ir",
          divide_and_reciprocal_use_lazy_device_ir, true},

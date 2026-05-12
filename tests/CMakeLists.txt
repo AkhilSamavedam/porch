@@ -38,6 +38,9 @@ set(
     block_reductions_handle_axis_larger_than_block
     nested_reductions_materialize_with_block_reduction
     softmax_style_expression_uses_nested_block_reduction
+    relu_compound_op_uses_primitives
+    softmax_compound_op_uses_primitives
+    logistic_compound_op_uses_primitives
     exp_uses_lazy_device_ir
     divide_and_reciprocal_use_lazy_device_ir
     elementwise_minimum_maximum_use_lazy_device_ir

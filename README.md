@@ -49,6 +49,11 @@ The IR is not built at C++ compile time. It is recorded dynamically while the
 user program runs, which lets porch preserve laziness across ordinary statement
 boundaries without requiring a special compiler.
 
+Higher-level operations live in `porch/ops.hpp` and are written as ordinary C++
+graph builders over tensor primitives, not as CUDA kernels. For example,
+`relu`, `softmax`, and `logistic` compose primitive expression nodes and then
+use the same materialization path as hand-written tensor expressions.
+
 ## Threading model
 
 `porch::tensor` is a cheap shared handle and can be copied across threads.
@@ -90,4 +95,5 @@ The current implementation provides a small `porch::tensor` API, CUDA-only GPU
 storage, runtime NVRTC PTX compilation, CUDA driver context/memory/module/kernel
 launch support, lazy tensor graph recording, fused codegen, GPU slicing, shape
 metadata on tensor expressions, primitive view ops, primitive reductions, and
-simple matmul lowering.
+simple matmul lowering. The initial compound op layer includes `relu`,
+`softmax`, and `logistic`.
