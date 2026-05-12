@@ -13,7 +13,8 @@ namespace porch {
     class backend {
       public:
         constexpr explicit backend(
-            backend_kind kind = backend_kind::cuda_jit) noexcept
+            backend_kind kind = backend_kind::cuda_jit
+        ) noexcept
             : kind_(kind) {}
 
         [[nodiscard]] constexpr backend_kind kind() const noexcept {
@@ -23,8 +24,9 @@ namespace porch {
             return kind_ == backend_kind::cuda_jit;
         }
 
-        friend constexpr bool operator==(const backend&,
-                                         const backend&) noexcept = default;
+        friend constexpr bool operator==(
+            const backend&, const backend&
+        ) noexcept = default;
 
       private:
         backend_kind kind_;

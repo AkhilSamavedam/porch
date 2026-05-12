@@ -18,8 +18,9 @@ namespace porch {
 
     class device {
       public:
-        constexpr explicit device(device_kind kind = device_kind::gpu,
-                                  int ordinal = 0) noexcept
+        constexpr explicit device(
+            device_kind kind = device_kind::gpu, int ordinal = 0
+        ) noexcept
             : kind_(kind), ordinal_(ordinal) {}
 
         [[nodiscard]] constexpr device_kind kind() const noexcept {
@@ -32,8 +33,9 @@ namespace porch {
             return kind_ == device_kind::gpu;
         }
 
-        friend constexpr bool operator==(const device&,
-                                         const device&) noexcept = default;
+        friend constexpr bool operator==(
+            const device&, const device&
+        ) noexcept = default;
 
       private:
         device_kind kind_;
@@ -73,8 +75,10 @@ namespace porch {
     class tensor_layout {
       public:
         explicit tensor_layout(std::vector<index_t> shape);
-        tensor_layout(std::vector<index_t> shape, std::vector<index_t> strides,
-                      index_t storage_offset = 0);
+        tensor_layout(
+            std::vector<index_t> shape, std::vector<index_t> strides,
+            index_t storage_offset = 0
+        );
 
         [[nodiscard]] std::span<const index_t> shape() const noexcept;
         [[nodiscard]] std::span<const index_t> strides() const noexcept;
@@ -91,11 +95,14 @@ namespace porch {
 
     class tensor {
       public:
-        tensor(std::vector<index_t> shape, std::vector<float32_t> values,
-               device placement = device{});
-        tensor(std::vector<index_t> shape, std::vector<float32_t> values,
-               cuda_jit::device_buffer device_values,
-               device placement = device{});
+        tensor(
+            std::vector<index_t> shape, std::vector<float32_t> values,
+            device placement = device{}
+        );
+        tensor(
+            std::vector<index_t> shape, std::vector<float32_t> values,
+            cuda_jit::device_buffer device_values, device placement = device{}
+        );
 
         [[nodiscard]] std::span<const index_t> shape() const noexcept;
         [[nodiscard]] std::span<const index_t> strides() const noexcept;
@@ -111,7 +118,8 @@ namespace porch {
         const tensor& realize() const;
         void synchronize() const;
         [[nodiscard]] tensor_expr operator[](
-            std::initializer_list<tensor_index> indices) const;
+            std::initializer_list<tensor_index> indices
+        ) const;
         [[nodiscard]] tensor_expr operator[](tensor_index index) const;
 
       private:
@@ -120,16 +128,21 @@ namespace porch {
         friend tensor make_materialized_tensor(
             std::vector<index_t> shape, std::vector<float32_t> values,
             cuda_jit::device_buffer device_values, bool host_current,
-            device placement);
+            device placement
+        );
 
         struct state;
 
-        tensor(std::vector<index_t> shape, std::vector<float32_t> values,
-               cuda_jit::device_buffer device_values, bool host_current,
-               device placement);
-        tensor(tensor_layout layout, std::vector<float32_t> values,
-               cuda_jit::device_buffer device_values, bool host_current,
-               device placement);
+        tensor(
+            std::vector<index_t> shape, std::vector<float32_t> values,
+            cuda_jit::device_buffer device_values, bool host_current,
+            device placement
+        );
+        tensor(
+            tensor_layout layout, std::vector<float32_t> values,
+            cuda_jit::device_buffer device_values, bool host_current,
+            device placement
+        );
 
         void ensure_materialized() const;
 
@@ -160,10 +173,12 @@ namespace porch {
         std::shared_ptr<const node> root_;
     };
 
-    [[nodiscard]] tensor full(std::vector<index_t> shape, float32_t value,
-                              device placement = device{});
-    [[nodiscard]] tensor zeros(std::vector<index_t> shape,
-                               device placement = device{});
+    [[nodiscard]] tensor full(
+        std::vector<index_t> shape, float32_t value, device placement = device{}
+    );
+    [[nodiscard]] tensor zeros(
+        std::vector<index_t> shape, device placement = device{}
+    );
     [[nodiscard]] tensor add(const tensor& lhs, const tensor& rhs);
     [[nodiscard]] tensor subtract(const tensor& lhs, const tensor& rhs);
     [[nodiscard]] tensor multiply(const tensor& lhs, const tensor& rhs);

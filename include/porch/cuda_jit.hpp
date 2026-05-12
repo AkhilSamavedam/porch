@@ -22,19 +22,22 @@ namespace porch::cuda_jit {
         [[nodiscard]] size_t size_bytes() const noexcept;
 
       private:
-        friend void copy_to_device(device_buffer& buffer,
-                                   std::span<const float32_t> source);
-        friend void copy_to_host(const device_buffer& buffer,
-                                 std::span<float32_t> target);
-        friend void launch_elementwise_binary(std::string_view ptx,
-                                              std::string_view function,
-                                              const device_buffer& lhs,
-                                              const device_buffer& rhs,
-                                              device_buffer& out, size_t count);
+        friend void copy_to_device(
+            device_buffer& buffer, std::span<const float32_t> source
+        );
+        friend void copy_to_host(
+            const device_buffer& buffer, std::span<float32_t> target
+        );
+        friend void launch_elementwise_binary(
+            std::string_view ptx, std::string_view function,
+            const device_buffer& lhs, const device_buffer& rhs,
+            device_buffer& out, size_t count
+        );
         friend void launch_fused_elementwise(
             std::string_view ptx, std::string_view function,
             const std::vector<const device_buffer*>& inputs, device_buffer& out,
-            size_t count);
+            size_t count
+        );
 
         std::shared_ptr<device_buffer_state> state_;
     };
@@ -52,30 +55,34 @@ namespace porch::cuda_jit {
     [[nodiscard]] bool is_available() noexcept;
 
     [[nodiscard]] std::string compile_to_ptx(
-        std::string_view source, const std::vector<std::string>& options = {});
+        std::string_view source, const std::vector<std::string>& options = {}
+    );
 
     [[nodiscard]] device_buffer make_device_buffer(
-        std::span<const float32_t> source);
-    void copy_to_device(device_buffer& buffer,
-                        std::span<const float32_t> source);
+        std::span<const float32_t> source
+    );
+    void copy_to_device(
+        device_buffer& buffer, std::span<const float32_t> source
+    );
     void copy_to_host(const device_buffer& buffer, std::span<float32_t> target);
     void synchronize();
 
-    void launch_elementwise_binary(std::string_view ptx,
-                                   std::string_view function,
-                                   std::span<const float32_t> lhs,
-                                   std::span<const float32_t> rhs,
-                                   std::span<float32_t> out);
+    void launch_elementwise_binary(
+        std::string_view ptx, std::string_view function,
+        std::span<const float32_t> lhs, std::span<const float32_t> rhs,
+        std::span<float32_t> out
+    );
 
-    void launch_elementwise_binary(std::string_view ptx,
-                                   std::string_view function,
-                                   const device_buffer& lhs,
-                                   const device_buffer& rhs, device_buffer& out,
-                                   size_t count);
+    void launch_elementwise_binary(
+        std::string_view ptx, std::string_view function,
+        const device_buffer& lhs, const device_buffer& rhs, device_buffer& out,
+        size_t count
+    );
 
     void launch_fused_elementwise(
         std::string_view ptx, std::string_view function,
         const std::vector<const device_buffer*>& inputs, device_buffer& out,
-        size_t count);
+        size_t count
+    );
 
 } // namespace porch::cuda_jit

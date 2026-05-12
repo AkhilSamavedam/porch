@@ -70,7 +70,8 @@ namespace porch::cuda_jit {
         };
 
         [[nodiscard]] dynamic_library open_any(
-            std::initializer_list<const char*> names) {
+            std::initializer_list<const char*> names
+        ) {
             for (const char* name : names) {
                 dynamic_library library{name};
                 if (library) return library;
@@ -83,12 +84,12 @@ namespace porch::cuda_jit {
         }
 
         struct nvrtc_api {
-            using create_program_fn = nvrtc_result (*)(nvrtc_program*,
-                                                       const char*, const char*,
-                                                       int, const char* const*,
-                                                       const char* const*);
-            using compile_program_fn = nvrtc_result (*)(nvrtc_program, int,
-                                                        const char* const*);
+            using create_program_fn = nvrtc_result (*)(
+                nvrtc_program*, const char*, const char*, int,
+                const char* const*, const char* const*
+            );
+            using compile_program_fn =
+                nvrtc_result (*)(nvrtc_program, int, const char* const*);
             using get_ptx_size_fn = nvrtc_result (*)(nvrtc_program, size_t*);
             using get_ptx_fn = nvrtc_result (*)(nvrtc_program, char*);
             using get_log_size_fn = nvrtc_result (*)(nvrtc_program, size_t*);
@@ -124,36 +125,36 @@ namespace porch::cuda_jit {
         struct cuda_api {
             using init_fn = cuda_result (*)(uint32_t);
             using device_get_fn = cuda_result (*)(cuda_device*, int);
-            using ctx_create_fn = cuda_result (*)(cuda_context*, uint32_t,
-                                                  cuda_device);
+            using ctx_create_fn =
+                cuda_result (*)(cuda_context*, uint32_t, cuda_device);
             using ctx_set_current_fn = cuda_result (*)(cuda_context);
             using ctx_destroy_fn = cuda_result (*)(cuda_context);
             using stream_create_fn = cuda_result (*)(cuda_stream*, uint32_t);
             using stream_destroy_fn = cuda_result (*)(cuda_stream);
             using stream_synchronize_fn = cuda_result (*)(cuda_stream);
-            using mem_alloc_async_fn = cuda_result (*)(cuda_device_ptr*, size_t,
-                                                       cuda_stream);
-            using mem_free_async_fn = cuda_result (*)(cuda_device_ptr,
-                                                      cuda_stream);
-            using memcpy_htod_async_fn = cuda_result (*)(cuda_device_ptr,
-                                                         const void*, size_t,
-                                                         cuda_stream);
-            using memcpy_dtoh_async_fn = cuda_result (*)(void*, cuda_device_ptr,
-                                                         size_t, cuda_stream);
-            using module_load_data_fn = cuda_result (*)(cuda_module*,
-                                                        const void*);
+            using mem_alloc_async_fn =
+                cuda_result (*)(cuda_device_ptr*, size_t, cuda_stream);
+            using mem_free_async_fn =
+                cuda_result (*)(cuda_device_ptr, cuda_stream);
+            using memcpy_htod_async_fn = cuda_result (*)(
+                cuda_device_ptr, const void*, size_t, cuda_stream
+            );
+            using memcpy_dtoh_async_fn =
+                cuda_result (*)(void*, cuda_device_ptr, size_t, cuda_stream);
+            using module_load_data_fn =
+                cuda_result (*)(cuda_module*, const void*);
             using module_unload_fn = cuda_result (*)(cuda_module);
-            using module_get_function_fn = cuda_result (*)(cuda_function*,
-                                                           cuda_module,
-                                                           const char*);
+            using module_get_function_fn =
+                cuda_result (*)(cuda_function*, cuda_module, const char*);
             using launch_kernel_fn = cuda_result (*)(
                 cuda_function, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-                uint32_t, uint32_t, cuda_stream, void**, void**);
+                uint32_t, uint32_t, cuda_stream, void**, void**
+            );
             using ctx_synchronize_fn = cuda_result (*)();
-            using get_error_name_fn = cuda_result (*)(cuda_result,
-                                                      const char**);
-            using get_error_string_fn = cuda_result (*)(cuda_result,
-                                                        const char**);
+            using get_error_name_fn =
+                cuda_result (*)(cuda_result, const char**);
+            using get_error_string_fn =
+                cuda_result (*)(cuda_result, const char**);
 
             init_fn init = nullptr;
             device_get_fn device_get = nullptr;
@@ -209,21 +210,26 @@ namespace porch::cuda_jit {
 
             nvrtc_api api;
             api.create_program = library.symbol<nvrtc_api::create_program_fn>(
-                "nvrtcCreateProgram");
+                "nvrtcCreateProgram"
+            );
             api.compile_program = library.symbol<nvrtc_api::compile_program_fn>(
-                "nvrtcCompileProgram");
+                "nvrtcCompileProgram"
+            );
             api.get_ptx_size =
                 library.symbol<nvrtc_api::get_ptx_size_fn>("nvrtcGetPTXSize");
             api.get_ptx = library.symbol<nvrtc_api::get_ptx_fn>("nvrtcGetPTX");
             api.get_log_size = library.symbol<nvrtc_api::get_log_size_fn>(
-                "nvrtcGetProgramLogSize");
+                "nvrtcGetProgramLogSize"
+            );
             api.get_log =
                 library.symbol<nvrtc_api::get_log_fn>("nvrtcGetProgramLog");
             api.destroy_program = library.symbol<nvrtc_api::destroy_program_fn>(
-                "nvrtcDestroyProgram");
+                "nvrtcDestroyProgram"
+            );
             api.get_error_string =
                 library.symbol<nvrtc_api::get_error_string_fn>(
-                    "nvrtcGetErrorString");
+                    "nvrtcGetErrorString"
+                );
 
             return {std::move(library), api};
         }
@@ -245,49 +251,60 @@ namespace porch::cuda_jit {
             api.stream_create =
                 library.symbol<cuda_api::stream_create_fn>("cuStreamCreate");
             api.stream_destroy = library.symbol<cuda_api::stream_destroy_fn>(
-                "cuStreamDestroy_v2");
+                "cuStreamDestroy_v2"
+            );
             api.stream_synchronize =
                 library.symbol<cuda_api::stream_synchronize_fn>(
-                    "cuStreamSynchronize");
+                    "cuStreamSynchronize"
+                );
             api.mem_alloc_async =
                 library.symbol<cuda_api::mem_alloc_async_fn>("cuMemAllocAsync");
             api.mem_free_async =
                 library.symbol<cuda_api::mem_free_async_fn>("cuMemFreeAsync");
             api.memcpy_htod_async =
                 library.symbol<cuda_api::memcpy_htod_async_fn>(
-                    "cuMemcpyHtoDAsync_v2");
+                    "cuMemcpyHtoDAsync_v2"
+                );
             api.memcpy_dtoh_async =
                 library.symbol<cuda_api::memcpy_dtoh_async_fn>(
-                    "cuMemcpyDtoHAsync_v2");
+                    "cuMemcpyDtoHAsync_v2"
+                );
             api.module_load_data =
                 library.symbol<cuda_api::module_load_data_fn>(
-                    "cuModuleLoadData");
+                    "cuModuleLoadData"
+                );
             api.module_unload =
                 library.symbol<cuda_api::module_unload_fn>("cuModuleUnload");
             api.module_get_function =
                 library.symbol<cuda_api::module_get_function_fn>(
-                    "cuModuleGetFunction");
+                    "cuModuleGetFunction"
+                );
             api.launch_kernel =
                 library.symbol<cuda_api::launch_kernel_fn>("cuLaunchKernel");
             api.ctx_synchronize = library.symbol<cuda_api::ctx_synchronize_fn>(
-                "cuCtxSynchronize");
+                "cuCtxSynchronize"
+            );
             api.get_error_name =
                 library.symbol<cuda_api::get_error_name_fn>("cuGetErrorName");
             api.get_error_string =
                 library.symbol<cuda_api::get_error_string_fn>(
-                    "cuGetErrorString");
+                    "cuGetErrorString"
+                );
 
             return {std::move(library), api};
         }
 
-        [[nodiscard]] std::string describe(const nvrtc_api& api,
-                                           nvrtc_result result) {
+        [[nodiscard]] std::string describe(
+            const nvrtc_api& api, nvrtc_result result
+        ) {
             if (api.get_error_string == nullptr) return "unknown NVRTC error";
             return api.get_error_string(result);
         }
 
-        void check_nvrtc(const nvrtc_api& api, nvrtc_result result,
-                         std::string_view operation) {
+        void check_nvrtc(
+            const nvrtc_api& api, nvrtc_result result,
+            std::string_view operation
+        ) {
             if (result == nvrtc_success) return;
 
             std::ostringstream message;
@@ -295,8 +312,9 @@ namespace porch::cuda_jit {
             throw std::runtime_error(message.str());
         }
 
-        [[nodiscard]] std::string describe(const cuda_api& api,
-                                           cuda_result result) {
+        [[nodiscard]] std::string describe(
+            const cuda_api& api, cuda_result result
+        ) {
             const char* name = nullptr;
             const char* description = nullptr;
             (void)api.get_error_name(result, &name);
@@ -310,8 +328,9 @@ namespace porch::cuda_jit {
             return message.str();
         }
 
-        void check_cuda(const cuda_api& api, cuda_result result,
-                        std::string_view operation) {
+        void check_cuda(
+            const cuda_api& api, cuda_result result, std::string_view operation
+        ) {
             if (result == cuda_success) return;
 
             std::ostringstream message;
@@ -319,22 +338,26 @@ namespace porch::cuda_jit {
             throw std::runtime_error(message.str());
         }
 
-        [[nodiscard]] std::string program_log(const nvrtc_api& api,
-                                              nvrtc_program program) {
+        [[nodiscard]] std::string program_log(
+            const nvrtc_api& api, nvrtc_program program
+        ) {
             size_t size = 0;
-            check_nvrtc(api, api.get_log_size(program, &size),
-                        "nvrtcGetProgramLogSize");
+            check_nvrtc(
+                api, api.get_log_size(program, &size), "nvrtcGetProgramLogSize"
+            );
             if (size == 0) return {};
 
             std::string log(size, '\0');
-            check_nvrtc(api, api.get_log(program, log.data()),
-                        "nvrtcGetProgramLog");
+            check_nvrtc(
+                api, api.get_log(program, log.data()), "nvrtcGetProgramLog"
+            );
             if (!log.empty() && log.back() == '\0') log.pop_back();
             return log;
         }
 
         [[nodiscard]] std::string cache_key(
-            std::string_view source, const std::vector<std::string>& options) {
+            std::string_view source, const std::vector<std::string>& options
+        ) {
             std::ostringstream key;
             key << source.size() << ':' << source;
             for (const std::string& option : options) {
@@ -415,17 +438,21 @@ namespace porch::cuda_jit {
             cuda_environment() : runtime(load_cuda_driver()) {
                 if (!runtime)
                     throw std::runtime_error(
-                        "CUDA tensor execution requires libcuda at runtime");
+                        "CUDA tensor execution requires libcuda at runtime"
+                    );
 
                 check_cuda(runtime.api, runtime.api.init(0), "cuInit");
 
                 cuda_device selected_device = 0;
-                check_cuda(runtime.api,
-                           runtime.api.device_get(&selected_device, 0),
-                           "cuDeviceGet");
-                check_cuda(runtime.api,
-                           runtime.api.ctx_create(&context, 0, selected_device),
-                           "cuCtxCreate");
+                check_cuda(
+                    runtime.api, runtime.api.device_get(&selected_device, 0),
+                    "cuDeviceGet"
+                );
+                check_cuda(
+                    runtime.api,
+                    runtime.api.ctx_create(&context, 0, selected_device),
+                    "cuCtxCreate"
+                );
             }
 
             ~cuda_environment() {
@@ -443,9 +470,10 @@ namespace porch::cuda_jit {
         }
 
         void set_current_context(cuda_environment& env) {
-            check_cuda(env.runtime.api,
-                       env.runtime.api.ctx_set_current(env.context),
-                       "cuCtxSetCurrent");
+            check_cuda(
+                env.runtime.api, env.runtime.api.ctx_set_current(env.context),
+                "cuCtxSetCurrent"
+            );
         }
 
         struct stream_handle {
@@ -453,9 +481,10 @@ namespace porch::cuda_jit {
                 : env(&environment) {
                 std::scoped_lock lock{env->mutex};
                 set_current_context(*env);
-                check_cuda(env->runtime.api,
-                           env->runtime.api.stream_create(&stream, 0),
-                           "cuStreamCreate");
+                check_cuda(
+                    env->runtime.api,
+                    env->runtime.api.stream_create(&stream, 0), "cuStreamCreate"
+                );
             }
 
             stream_handle(const stream_handle&) = delete;
@@ -477,9 +506,11 @@ namespace porch::cuda_jit {
             void synchronize() {
                 std::scoped_lock lock{env->mutex};
                 set_current_context(*env);
-                check_cuda(env->runtime.api,
-                           env->runtime.api.stream_synchronize(stream),
-                           "cuStreamSynchronize");
+                check_cuda(
+                    env->runtime.api,
+                    env->runtime.api.stream_synchronize(stream),
+                    "cuStreamSynchronize"
+                );
                 std::scoped_lock stream_lock{mutex};
                 live_modules.clear();
             }
@@ -510,7 +541,8 @@ namespace porch::cuda_jit {
             check_cuda(
                 env.runtime.api,
                 env.runtime.api.mem_alloc_async(&ptr, bytes, stream->stream),
-                "cuMemAllocAsync");
+                "cuMemAllocAsync"
+            );
             producer_stream = std::move(stream);
         }
 
@@ -541,8 +573,9 @@ namespace porch::cuda_jit {
 
     namespace {
 
-        void require_device_bytes(const device_buffer& buffer, size_t bytes,
-                                  std::string_view name) {
+        void require_device_bytes(
+            const device_buffer& buffer, size_t bytes, std::string_view name
+        ) {
             if (buffer.size_bytes() < bytes) {
                 std::ostringstream message;
                 message << name << " device buffer is too small";
@@ -551,13 +584,15 @@ namespace porch::cuda_jit {
         }
 
         std::shared_ptr<stream_handle> producer_stream(
-            const device_buffer_state& state) {
+            const device_buffer_state& state
+        ) {
             std::scoped_lock lock{state.mutex};
             return state.producer_stream;
         }
 
-        void set_producer_stream(device_buffer_state& state,
-                                 std::shared_ptr<stream_handle> stream) {
+        void set_producer_stream(
+            device_buffer_state& state, std::shared_ptr<stream_handle> stream
+        ) {
             std::scoped_lock lock{state.mutex};
             state.producer_stream = std::move(stream);
         }
@@ -568,9 +603,11 @@ namespace porch::cuda_jit {
             cuda_environment& env = *stream->env;
             std::scoped_lock lock{env.mutex};
             set_current_context(env);
-            check_cuda(env.runtime.api,
-                       env.runtime.api.stream_synchronize(stream->stream),
-                       "cuStreamSynchronize");
+            check_cuda(
+                env.runtime.api,
+                env.runtime.api.stream_synchronize(stream->stream),
+                "cuStreamSynchronize"
+            );
             std::scoped_lock stream_lock{stream->mutex};
             stream->live_modules.clear();
         }
@@ -607,8 +644,9 @@ namespace porch::cuda_jit {
         }
     }
 
-    std::string compile_to_ptx(std::string_view source,
-                               const std::vector<std::string>& options) {
+    std::string compile_to_ptx(
+        std::string_view source, const std::vector<std::string>& options
+    ) {
         const std::string key = cache_key(source, options);
         {
             std::scoped_lock lock{ptx_cache_mutex()};
@@ -624,9 +662,12 @@ namespace porch::cuda_jit {
         const std::string source_text{source};
         check_nvrtc(
             runtime.api,
-            runtime.api.create_program(&raw_program, source_text.c_str(),
-                                       "porch_kernel.cu", 0, nullptr, nullptr),
-            "nvrtcCreateProgram");
+            runtime.api.create_program(
+                &raw_program, source_text.c_str(), "porch_kernel.cu", 0,
+                nullptr, nullptr
+            ),
+            "nvrtcCreateProgram"
+        );
         program_handle program{raw_program, runtime.api};
 
         std::vector<const char*> option_ptrs;
@@ -636,18 +677,22 @@ namespace porch::cuda_jit {
 
         const nvrtc_result compile_result = runtime.api.compile_program(
             program.get(), static_cast<int>(option_ptrs.size()),
-            option_ptrs.empty() ? nullptr : option_ptrs.data());
+            option_ptrs.empty() ? nullptr : option_ptrs.data()
+        );
         if (compile_result != nvrtc_success)
             throw compilation_error(program_log(runtime.api, program.get()));
 
         size_t ptx_size = 0;
-        check_nvrtc(runtime.api,
-                    runtime.api.get_ptx_size(program.get(), &ptx_size),
-                    "nvrtcGetPTXSize");
+        check_nvrtc(
+            runtime.api, runtime.api.get_ptx_size(program.get(), &ptx_size),
+            "nvrtcGetPTXSize"
+        );
 
         std::string ptx(ptx_size, '\0');
-        check_nvrtc(runtime.api, runtime.api.get_ptx(program.get(), ptx.data()),
-                    "nvrtcGetPTX");
+        check_nvrtc(
+            runtime.api, runtime.api.get_ptx(program.get(), ptx.data()),
+            "nvrtcGetPTX"
+        );
         if (!ptx.empty() && ptx.back() == '\0') ptx.pop_back();
 
         {
@@ -663,8 +708,9 @@ namespace porch::cuda_jit {
         return buffer;
     }
 
-    void copy_to_device(device_buffer& buffer,
-                        std::span<const float32_t> source) {
+    void copy_to_device(
+        device_buffer& buffer, std::span<const float32_t> source
+    ) {
         if (source.empty()) return;
         require_device_bytes(buffer, source.size_bytes(), "target");
 
@@ -672,19 +718,24 @@ namespace porch::cuda_jit {
         cuda_environment& env = *stream->env;
         std::scoped_lock lock{env.mutex};
         set_current_context(env);
-        check_cuda(env.runtime.api,
-                   env.runtime.api.memcpy_htod_async(
-                       buffer.state_->ptr, source.data(), source.size_bytes(),
-                       stream->stream),
-                   "cuMemcpyHtoDAsync");
-        check_cuda(env.runtime.api,
-                   env.runtime.api.stream_synchronize(stream->stream),
-                   "cuStreamSynchronize");
+        check_cuda(
+            env.runtime.api,
+            env.runtime.api.memcpy_htod_async(
+                buffer.state_->ptr, source.data(), source.size_bytes(),
+                stream->stream
+            ),
+            "cuMemcpyHtoDAsync"
+        );
+        check_cuda(
+            env.runtime.api, env.runtime.api.stream_synchronize(stream->stream),
+            "cuStreamSynchronize"
+        );
         set_producer_stream(*buffer.state_, std::move(stream));
     }
 
-    void copy_to_host(const device_buffer& buffer,
-                      std::span<float32_t> target) {
+    void copy_to_host(
+        const device_buffer& buffer, std::span<float32_t> target
+    ) {
         if (target.empty()) return;
         require_device_bytes(buffer, target.size_bytes(), "source");
 
@@ -693,39 +744,44 @@ namespace porch::cuda_jit {
         synchronize_stream(producer_stream(*buffer.state_));
         std::scoped_lock lock{env.mutex};
         set_current_context(env);
-        check_cuda(env.runtime.api,
-                   env.runtime.api.memcpy_dtoh_async(
-                       target.data(), buffer.state_->ptr, target.size_bytes(),
-                       stream->stream),
-                   "cuMemcpyDtoHAsync");
-        check_cuda(env.runtime.api,
-                   env.runtime.api.stream_synchronize(stream->stream),
-                   "cuStreamSynchronize");
+        check_cuda(
+            env.runtime.api,
+            env.runtime.api.memcpy_dtoh_async(
+                target.data(), buffer.state_->ptr, target.size_bytes(),
+                stream->stream
+            ),
+            "cuMemcpyDtoHAsync"
+        );
+        check_cuda(
+            env.runtime.api, env.runtime.api.stream_synchronize(stream->stream),
+            "cuStreamSynchronize"
+        );
     }
 
     void synchronize() { current_stream()->synchronize(); }
 
-    void launch_elementwise_binary(std::string_view ptx,
-                                   std::string_view function,
-                                   std::span<const float32_t> lhs,
-                                   std::span<const float32_t> rhs,
-                                   std::span<float32_t> out) {
+    void launch_elementwise_binary(
+        std::string_view ptx, std::string_view function,
+        std::span<const float32_t> lhs, std::span<const float32_t> rhs,
+        std::span<float32_t> out
+    ) {
         if (lhs.size() != rhs.size() || lhs.size() != out.size())
             throw std::invalid_argument("CUDA elementwise operands must match");
 
         device_buffer device_lhs = make_device_buffer(lhs);
         device_buffer device_rhs = make_device_buffer(rhs);
         device_buffer device_out{out.size_bytes()};
-        launch_elementwise_binary(ptx, function, device_lhs, device_rhs,
-                                  device_out, out.size());
+        launch_elementwise_binary(
+            ptx, function, device_lhs, device_rhs, device_out, out.size()
+        );
         copy_to_host(device_out, out);
     }
 
-    void launch_elementwise_binary(std::string_view ptx,
-                                   std::string_view function,
-                                   const device_buffer& lhs,
-                                   const device_buffer& rhs, device_buffer& out,
-                                   size_t count) {
+    void launch_elementwise_binary(
+        std::string_view ptx, std::string_view function,
+        const device_buffer& lhs, const device_buffer& rhs, device_buffer& out,
+        size_t count
+    ) {
         std::vector<const device_buffer*> inputs{&lhs, &rhs};
         launch_fused_elementwise(ptx, function, inputs, out, count);
     }
@@ -733,7 +789,8 @@ namespace porch::cuda_jit {
     void launch_fused_elementwise(
         std::string_view ptx, std::string_view function,
         const std::vector<const device_buffer*>& inputs, device_buffer& out,
-        size_t count) {
+        size_t count
+    ) {
         if (count == 0) return;
 
         const size_t bytes = count * sizeof(float32_t);
@@ -762,7 +819,8 @@ namespace porch::cuda_jit {
         check_cuda(
             env.runtime.api,
             env.runtime.api.module_load_data(&raw_module, ptx_text.c_str()),
-            "cuModuleLoadData");
+            "cuModuleLoadData"
+        );
         auto module =
             std::make_shared<module_handle>(raw_module, env.runtime.api);
         {
@@ -772,10 +830,13 @@ namespace porch::cuda_jit {
 
         cuda_function kernel = nullptr;
         const std::string function_name{function};
-        check_cuda(env.runtime.api,
-                   env.runtime.api.module_get_function(&kernel, module->get(),
-                                                       function_name.c_str()),
-                   "cuModuleGetFunction");
+        check_cuda(
+            env.runtime.api,
+            env.runtime.api.module_get_function(
+                &kernel, module->get(), function_name.c_str()
+            ),
+            "cuModuleGetFunction"
+        );
 
         const uint32_t block_size = 256;
         const uint32_t grid_size =
@@ -795,11 +856,14 @@ namespace porch::cuda_jit {
         params.push_back(&out_ptr);
         params.push_back(&element_count);
 
-        check_cuda(env.runtime.api,
-                   env.runtime.api.launch_kernel(
-                       kernel, grid_size, 1, 1, block_size, 1, 1, 0,
-                       stream->stream, params.data(), nullptr),
-                   "cuLaunchKernel");
+        check_cuda(
+            env.runtime.api,
+            env.runtime.api.launch_kernel(
+                kernel, grid_size, 1, 1, block_size, 1, 1, 0, stream->stream,
+                params.data(), nullptr
+            ),
+            "cuLaunchKernel"
+        );
         set_producer_stream(*out.state_, std::move(stream));
     }
 

@@ -14,15 +14,19 @@
 namespace {
 
     void construction_tracks_shape_and_device() {
-        const porch::tensor values{{2, 3},
-                                   {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F},
-                                   porch::device{porch::device_kind::gpu, 1}};
+        const porch::tensor values{
+            {2, 3},
+            {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F},
+            porch::device{porch::device_kind::gpu, 1}
+        };
 
         assert(values.rank() == 2);
         assert(values.numel() == 6);
-        assert((std::vector<porch::index_t>{values.shape().begin(),
-                                            values.shape().end()} ==
-                std::vector<porch::index_t>{2, 3}));
+        assert(
+            (std::vector<porch::index_t>{
+                 values.shape().begin(), values.shape().end()
+             } == std::vector<porch::index_t>{2, 3})
+        );
         assert(values.placement().is_gpu());
         assert(values.placement().ordinal() == 1);
     }
@@ -32,16 +36,19 @@ namespace {
     }
 
     void construction_builds_contiguous_layout() {
-        const porch::tensor values{{2, 3, 4},
-                                   std::vector<porch::float32_t>(24, 1.0F)};
+        const porch::tensor values{
+            {2, 3, 4}, std::vector<porch::float32_t>(24, 1.0F)
+        };
 
         assert(values.rank() == 3);
         assert(values.numel() == 24);
         assert(values.is_contiguous());
         assert(values.storage_offset() == 0);
-        assert((std::vector<porch::index_t>{values.strides().begin(),
-                                            values.strides().end()} ==
-                std::vector<porch::index_t>{12, 4, 1}));
+        assert(
+            (std::vector<porch::index_t>{
+                 values.strides().begin(), values.strides().end()
+             } == std::vector<porch::index_t>{12, 4, 1})
+        );
         assert(&values.layout() != nullptr);
     }
 
@@ -50,13 +57,17 @@ namespace {
 
         const porch::tensor sliced = values[{porch::slice{1, 6, 2}}];
 
-        assert((std::vector<porch::index_t>{sliced.shape().begin(),
-                                            sliced.shape().end()} ==
-                std::vector<porch::index_t>{3}));
+        assert(
+            (std::vector<porch::index_t>{
+                 sliced.shape().begin(), sliced.shape().end()
+             } == std::vector<porch::index_t>{3})
+        );
         assert(sliced.is_contiguous());
-        assert((std::vector<porch::float32_t>{sliced.data().begin(),
-                                              sliced.data().end()} ==
-                std::vector<porch::float32_t>{1.0F, 3.0F, 5.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 sliced.data().begin(), sliced.data().end()
+             } == std::vector<porch::float32_t>{1.0F, 3.0F, 5.0F})
+        );
     }
 
     void bracket_slice_returns_lazy_expression() {
@@ -67,24 +78,32 @@ namespace {
 
         const porch::tensor result = expression * 2.0F;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{2.0F, 6.0F, 10.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{2.0F, 6.0F, 10.0F})
+        );
     }
 
     void bracket_slice_handles_multiple_dimensions() {
-        const porch::tensor values{{3, 4},
-                                   {0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F,
-                                    7.0F, 8.0F, 9.0F, 10.0F, 11.0F}};
+        const porch::tensor values{
+            {3, 4},
+            {0.0F, 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F, 10.0F,
+             11.0F}
+        };
 
         const porch::tensor sliced = values[{1, porch::slice{1, 4, 2}}];
 
-        assert((std::vector<porch::index_t>{sliced.shape().begin(),
-                                            sliced.shape().end()} ==
-                std::vector<porch::index_t>{2}));
-        assert((std::vector<porch::float32_t>{sliced.data().begin(),
-                                              sliced.data().end()} ==
-                std::vector<porch::float32_t>{5.0F, 7.0F}));
+        assert(
+            (std::vector<porch::index_t>{
+                 sliced.shape().begin(), sliced.shape().end()
+             } == std::vector<porch::index_t>{2})
+        );
+        assert(
+            (std::vector<porch::float32_t>{
+                 sliced.data().begin(), sliced.data().end()
+             } == std::vector<porch::float32_t>{5.0F, 7.0F})
+        );
     }
 
     void zeros_fills_gpu_tensor() {
@@ -103,9 +122,11 @@ namespace {
         const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
 
         const porch::tensor result = lhs + rhs;
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F})
+        );
         assert(!result.device_data().empty());
     }
 
@@ -114,9 +135,11 @@ namespace {
         const porch::tensor rhs{{2, 2}, {1.0F, 2.0F, 3.0F, 4.0F}};
 
         const porch::tensor result = lhs - rhs;
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{9.0F, 18.0F, 27.0F, 36.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{9.0F, 18.0F, 27.0F, 36.0F})
+        );
         assert(!result.device_data().empty());
     }
 
@@ -125,9 +148,11 @@ namespace {
         const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
 
         const porch::tensor result = lhs * rhs;
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{10.0F, 40.0F, 90.0F, 160.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{10.0F, 40.0F, 90.0F, 160.0F})
+        );
         assert(!result.device_data().empty());
     }
 
@@ -139,12 +164,19 @@ namespace {
         const porch::tensor difference = lhs - rhs;
         const porch::tensor product = lhs * rhs;
 
-        assert((sum.cpu() == std::vector<porch::float32_t>{3.0F, -6.0F, 3.0F,
-                                                           4.0F, 0.0F, 8.5F}));
-        assert((difference.cpu() == std::vector<porch::float32_t>{
-                                        -9.0F, 4.0F, -3.0F, 0.0F, 8.0F, 7.5F}));
-        assert((product.cpu() == std::vector<porch::float32_t>{
-                                     -18.0F, 5.0F, 0.0F, 4.0F, -16.0F, 4.0F}));
+        assert(
+            (sum.cpu() ==
+             std::vector<porch::float32_t>{3.0F, -6.0F, 3.0F, 4.0F, 0.0F, 8.5F})
+        );
+        assert((
+            difference.cpu() ==
+            std::vector<porch::float32_t>{-9.0F, 4.0F, -3.0F, 0.0F, 8.0F, 7.5F}
+        ));
+        assert(
+            (product.cpu() == std::vector<porch::float32_t>{
+                                  -18.0F, 5.0F, 0.0F, 4.0F, -16.0F, 4.0F
+                              })
+        );
     }
 
     void chained_arithmetic_matches_expected_values() {
@@ -153,8 +185,11 @@ namespace {
 
         const porch::tensor result = (lhs + rhs) * (lhs - 1.0F) - rhs;
 
-        assert((result.cpu() == std::vector<porch::float32_t>{
-                                    -6.0F, 2.0F, 10.0F, 18.0F, 26.0F, 34.0F}));
+        assert(
+            (result.cpu() == std::vector<porch::float32_t>{
+                                 -6.0F, 2.0F, 10.0F, 18.0F, 26.0F, 34.0F
+                             })
+        );
     }
 
     void fused_expression_materializes_once() {
@@ -163,9 +198,11 @@ namespace {
 
         const porch::tensor result = lhs + rhs * 2.0F - 1.0F;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{20.0F, 41.0F, 62.0F, 83.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{20.0F, 41.0F, 62.0F, 83.0F})
+        );
         assert(!result.device_data().empty());
     }
 
@@ -177,9 +214,11 @@ namespace {
         expression = expression * 2.0F - 1.0F;
         const porch::tensor result = expression;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{21.0F, 43.0F, 65.0F, 87.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{21.0F, 43.0F, 65.0F, 87.0F})
+        );
         assert(!result.device_data().empty());
     }
 
@@ -188,15 +227,19 @@ namespace {
         const porch::tensor rhs{{2, 2}, {10.0F, 20.0F, 30.0F, 40.0F}};
 
         const porch::tensor delayed = lhs + rhs;
-        assert((std::vector<porch::index_t>{delayed.shape().begin(),
-                                            delayed.shape().end()} ==
-                std::vector<porch::index_t>{2, 2}));
+        assert(
+            (std::vector<porch::index_t>{
+                 delayed.shape().begin(), delayed.shape().end()
+             } == std::vector<porch::index_t>{2, 2})
+        );
 
         const porch::tensor result = delayed * 2.0F - 1.0F;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{21.0F, 43.0F, 65.0F, 87.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{21.0F, 43.0F, 65.0F, 87.0F})
+        );
         assert(!result.device_data().empty());
     }
 
@@ -209,8 +252,10 @@ namespace {
         assert(!result.device_data().empty());
         result.synchronize();
 
-        assert((result.cpu() ==
-                std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F}));
+        assert(
+            (result.cpu() ==
+             std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F})
+        );
     }
 
     void concurrent_same_lazy_tensor_materializes_once_safely() {
@@ -245,8 +290,9 @@ namespace {
         if (left_error) std::rethrow_exception(left_error);
         if (right_error) std::rethrow_exception(right_error);
 
-        const std::vector<porch::float32_t> expected{21.0F, 43.0F, 65.0F,
-                                                     87.0F};
+        const std::vector<porch::float32_t> expected{
+            21.0F, 43.0F, 65.0F, 87.0F
+        };
         assert(first == expected);
         assert(second == expected);
     }
@@ -284,10 +330,14 @@ namespace {
         if (left_error) std::rethrow_exception(left_error);
         if (right_error) std::rethrow_exception(right_error);
 
-        assert((left_values ==
-                std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F}));
-        assert((right_values ==
-                std::vector<porch::float32_t>{9.0F, 18.0F, 27.0F, 36.0F}));
+        assert(
+            (left_values ==
+             std::vector<porch::float32_t>{11.0F, 22.0F, 33.0F, 44.0F})
+        );
+        assert(
+            (right_values ==
+             std::vector<porch::float32_t>{9.0F, 18.0F, 27.0F, 36.0F})
+        );
     }
 
     void scalar_elementwise_ops_use_cuda_backend() {
@@ -295,97 +345,123 @@ namespace {
 
         const porch::tensor result = 10.0F - values * 2.0F;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{8.0F, 6.0F, 4.0F, 2.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{8.0F, 6.0F, 4.0F, 2.0F})
+        );
         assert(!result.device_data().empty());
     }
 
     void scalar_arithmetic_order_matches_expected_values() {
-        const porch::tensor values{{2, 3},
-                                   {-2.0F, -1.0F, 0.0F, 1.0F, 2.0F, 3.0F}};
+        const porch::tensor values{
+            {2, 3}, {-2.0F, -1.0F, 0.0F, 1.0F, 2.0F, 3.0F}
+        };
 
         const porch::tensor left_scalar = 10.0F - values * 3.0F;
         const porch::tensor right_scalar = (values + 5.0F) * 2.0F;
 
-        assert((left_scalar.cpu() ==
-                std::vector<porch::float32_t>{16.0F, 13.0F, 10.0F, 7.0F, 4.0F,
-                                              1.0F}));
-        assert((right_scalar.cpu() ==
-                std::vector<porch::float32_t>{6.0F, 8.0F, 10.0F, 12.0F, 14.0F,
-                                              16.0F}));
+        assert((
+            left_scalar.cpu() ==
+            std::vector<porch::float32_t>{16.0F, 13.0F, 10.0F, 7.0F, 4.0F, 1.0F}
+        ));
+        assert(
+            (right_scalar.cpu() == std::vector<porch::float32_t>{
+                                       6.0F, 8.0F, 10.0F, 12.0F, 14.0F, 16.0F
+                                   })
+        );
     }
 
     void matmul_uses_cuda_backend() {
         const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
-        const porch::tensor rhs{{3, 2},
-                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+        const porch::tensor rhs{
+            {3, 2}, {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}
+        };
 
         const porch::tensor result = porch::matmul(lhs, rhs);
 
-        assert((std::vector<porch::index_t>{result.shape().begin(),
-                                            result.shape().end()} ==
-                std::vector<porch::index_t>{2, 2}));
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{58.0F, 64.0F, 139.0F, 154.0F}));
+        assert(
+            (std::vector<porch::index_t>{
+                 result.shape().begin(), result.shape().end()
+             } == std::vector<porch::index_t>{2, 2})
+        );
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{58.0F, 64.0F, 139.0F, 154.0F})
+        );
         assert(!result.device_data().empty());
     }
 
     void matmul_rectangular_values_are_correct() {
         const porch::tensor lhs{{3, 2}, {1.0F, 2.0F, -1.0F, 3.0F, 4.0F, -2.0F}};
         const porch::tensor rhs{
-            {2, 4}, {2.0F, 0.0F, -1.0F, 5.0F, 3.0F, -2.0F, 4.0F, 1.0F}};
+            {2, 4}, {2.0F, 0.0F, -1.0F, 5.0F, 3.0F, -2.0F, 4.0F, 1.0F}
+        };
 
         const porch::tensor result = porch::matmul(lhs, rhs);
 
-        assert((std::vector<porch::index_t>{result.shape().begin(),
-                                            result.shape().end()} ==
-                std::vector<porch::index_t>{3, 4}));
-        assert((result.cpu() == std::vector<porch::float32_t>{
-                                    8.0F, -4.0F, 7.0F, 7.0F, 7.0F, -6.0F, 13.0F,
-                                    -2.0F, 2.0F, 4.0F, -12.0F, 18.0F}));
+        assert(
+            (std::vector<porch::index_t>{
+                 result.shape().begin(), result.shape().end()
+             } == std::vector<porch::index_t>{3, 4})
+        );
+        assert(
+            (result.cpu() == std::vector<porch::float32_t>{
+                                 8.0F, -4.0F, 7.0F, 7.0F, 7.0F, -6.0F, 13.0F,
+                                 -2.0F, 2.0F, 4.0F, -12.0F, 18.0F
+                             })
+        );
     }
 
     void matmul_returns_lazy_expression() {
         const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
-        const porch::tensor rhs{{3, 2},
-                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+        const porch::tensor rhs{
+            {3, 2}, {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}
+        };
 
         auto expression = porch::matmul(lhs, rhs);
         static_assert(std::is_same_v<decltype(expression), porch::tensor_expr>);
 
         const porch::tensor result = expression;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{58.0F, 64.0F, 139.0F, 154.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{58.0F, 64.0F, 139.0F, 154.0F})
+        );
     }
 
     void matmul_composes_with_elementwise_ir() {
         const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
-        const porch::tensor rhs{{3, 2},
-                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+        const porch::tensor rhs{
+            {3, 2}, {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}
+        };
 
         auto expression = porch::matmul(lhs, rhs) * 2.0F - 1.0F;
         const porch::tensor result = expression;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{115.0F, 127.0F, 277.0F, 307.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{115.0F, 127.0F, 277.0F, 307.0F})
+        );
     }
 
     void matmul_accepts_expression_operands() {
         const porch::tensor lhs{{2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}};
-        const porch::tensor rhs{{3, 2},
-                                {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}};
+        const porch::tensor rhs{
+            {3, 2}, {7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F}
+        };
 
         auto expression = porch::matmul(lhs + lhs, rhs);
         const porch::tensor result = expression;
 
-        assert((std::vector<porch::float32_t>{result.data().begin(),
-                                              result.data().end()} ==
-                std::vector<porch::float32_t>{116.0F, 128.0F, 278.0F, 308.0F}));
+        assert(
+            (std::vector<porch::float32_t>{
+                 result.data().begin(), result.data().end()
+             } == std::vector<porch::float32_t>{116.0F, 128.0F, 278.0F, 308.0F})
+        );
     }
 
     void matmul_rejects_invalid_shapes() {
@@ -423,16 +499,19 @@ namespace {
     }
 
     void cuda_jit_availability_matches_backend_availability() {
-        assert(porch::cuda_jit::is_available() ==
-               porch::is_backend_available(
-                   porch::backend{porch::backend_kind::cuda_jit}));
+        assert(
+            porch::cuda_jit::is_available() ==
+            porch::is_backend_available(
+                porch::backend{porch::backend_kind::cuda_jit}
+            )
+        );
     }
 
     void cuda_jit_compiles_or_reports_missing_nvrtc() {
         constexpr std::string_view source = R"cuda(
-            extern "C" __global__ void add_kernel(const float* lhs,
-                                                  const float* rhs,
-                                                  float* out) {
+            extern "C" __global__ void add_kernel(
+                const float* lhs, const float* rhs, float* out
+            ) {
                 const int index = threadIdx.x;
                 out[index] = lhs[index] + rhs[index];
             }
