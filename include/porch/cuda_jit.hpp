@@ -38,6 +38,11 @@ namespace porch::cuda_jit {
             const std::vector<const device_buffer*>& inputs, device_buffer& out,
             size_t count
         );
+        friend void launch_fused_reduction(
+            std::string_view ptx, std::string_view function,
+            const std::vector<const device_buffer*>& inputs, device_buffer& out,
+            size_t count
+        );
 
         std::shared_ptr<device_buffer_state> state_;
     };
@@ -80,6 +85,12 @@ namespace porch::cuda_jit {
     );
 
     void launch_fused_elementwise(
+        std::string_view ptx, std::string_view function,
+        const std::vector<const device_buffer*>& inputs, device_buffer& out,
+        size_t count
+    );
+
+    void launch_fused_reduction(
         std::string_view ptx, std::string_view function,
         const std::vector<const device_buffer*>& inputs, device_buffer& out,
         size_t count

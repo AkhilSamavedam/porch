@@ -579,6 +579,48 @@ namespace {
         );
     }
 
+    void block_reductions_handle_axis_larger_than_block() {
+        std::vector<porch::float32_t> values(513);
+        for (size_t index = 0; index < values.size(); ++index) {
+            values[index] = static_cast<porch::float32_t>(index + 1);
+        }
+        values[400] = 1000.0F;
+
+        const porch::tensor input{{1, 513}, values};
+        const porch::tensor total = porch::sum(input, 1);
+        const porch::tensor high = porch::max(input, 1);
+
+        assert((total.cpu() == std::vector<porch::float32_t>{132440.0F}));
+        assert((high.cpu() == std::vector<porch::float32_t>{1000.0F}));
+    }
+
+    void nested_reductions_materialize_with_block_reduction() {
+        std::vector<porch::float32_t> values(513);
+        for (size_t index = 0; index < values.size(); ++index) {
+            values[index] = static_cast<porch::float32_t>(index + 1);
+        }
+
+        const porch::tensor input{{1, 513}, values};
+        const porch::tensor result = porch::sum(input, 1) * 2.0F + 1.0F;
+
+        assert((result.cpu() == std::vector<porch::float32_t>{263683.0F}));
+    }
+
+    void softmax_style_expression_uses_nested_block_reduction() {
+        const porch::tensor values{{2, 2}, {0.0F, 0.0F, 1.0F, 1.0F}};
+
+        auto exponentials = porch::exp(values);
+        auto denominators =
+            porch::broadcast_to(porch::sum(exponentials, 1, true), {2, 2});
+        const porch::tensor result = exponentials / denominators;
+        const std::vector<porch::float32_t> host = result.cpu();
+
+        assert(host.size() == 4);
+        for (const porch::float32_t value : host) {
+            assert(value > 0.49F && value < 0.51F);
+        }
+    }
+
     void exp_uses_lazy_device_ir() {
         const porch::tensor values{{3}, {-1.0F, 0.0F, 2.0F}};
 
@@ -626,10 +668,30 @@ namespace {
         };
 
         auto expression = porch::unsqueeze(values + 1.0F, 1);
+        const porch::tensor leading = porch::unsqueeze(values, 0);
+        const porch::tensor trailing = porch::unsqueeze(values, 2);
 
         assert((expression.shape() == std::vector<porch::index_t>{2, 1, 3}));
         assert(expression.rank() == 3);
         assert(expression.numel() == 6);
+        assert(
+            (std::vector<porch::index_t>{
+                 leading.shape().begin(), leading.shape().end()
+             } == std::vector<porch::index_t>{1, 2, 3})
+        );
+        assert(
+            (std::vector<porch::index_t>{
+                 trailing.shape().begin(), trailing.shape().end()
+             } == std::vector<porch::index_t>{2, 3, 1})
+        );
+        assert(
+            (leading.cpu() ==
+             std::vector<porch::float32_t>{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F})
+        );
+        assert(
+            (trailing.cpu() ==
+             std::vector<porch::float32_t>{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F})
+        );
 
         const porch::tensor result = expression;
         assert(
@@ -763,6 +825,12 @@ namespace {
         {"reductions_use_lazy_device_ir", reductions_use_lazy_device_ir, true},
         {"keepdim_reductions_use_lazy_device_ir",
          keepdim_reductions_use_lazy_device_ir, true},
+        {"block_reductions_handle_axis_larger_than_block",
+         block_reductions_handle_axis_larger_than_block, true},
+        {"nested_reductions_materialize_with_block_reduction",
+         nested_reductions_materialize_with_block_reduction, true},
+        {"softmax_style_expression_uses_nested_block_reduction",
+         softmax_style_expression_uses_nested_block_reduction, true},
         {"exp_uses_lazy_device_ir", exp_uses_lazy_device_ir, true},
         {"divide_and_reciprocal_use_lazy_device_ir",
          divide_and_reciprocal_use_lazy_device_ir, true},

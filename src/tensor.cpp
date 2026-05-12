@@ -4,6 +4,7 @@
 #include <float.h>
 
 #include <algorithm>
+#include <deque>
 #include <iomanip>
 #include <map>
 #include <memory>
@@ -728,10 +729,13 @@ namespace porch {
                     );
                 }
                 case expr_kind::reshape:
+                    // Contiguous reshape changes shape metadata only.
                     return emit_expression(
                         *node.lhs, context, index_expression, statements
                     );
                 case expr_kind::unsqueeze:
+                    // Unsqueeze inserts a size-1 dimension, preserving linear
+                    // order.
                     return emit_expression(
                         *node.lhs, context, index_expression, statements
                     );
@@ -889,9 +893,119 @@ namespace porch {
             return source.str();
         }
 
+        std::string fused_reduction_kernel_source(
+            const tensor_expr::node& node, expression_context& context,
+            const expression_info& source_info
+        ) {
+            const std::string initial_value =
+                node.kind == expr_kind::sum ? "0.0f" : "-FLT_MAX";
+            const std::string source_index = emit_reduction_source_index(
+                source_info.shape, node.axis, node.keepdim, "output_index",
+                "axis_index"
+            );
+
+            std::ostringstream loop_statements;
+            const std::string value = emit_expression(
+                *node.lhs, context, source_index, loop_statements
+            );
+
+            std::ostringstream source;
+            source << "typedef unsigned long long uint64_t;\n"
+                   << "#define FLT_MAX 3.4028234663852886e+38f\n"
+                   << "extern \"C\" __global__ void porch_fused_reduction(";
+            for (size_t index = 0; index < context.inputs.size(); ++index) {
+                if (index != 0) source << ", ";
+                source << "const float* in" << index;
+            }
+            if (!context.inputs.empty()) source << ", ";
+            source
+                << "float* out, uint64_t count) {\n"
+                << "    const uint64_t output_index = blockIdx.x;\n"
+                << "    if (output_index >= count) return;\n"
+                << "    const uint64_t local_index = threadIdx.x;\n"
+                << "    float thread_total = " << initial_value << ";\n"
+                << "    for (uint64_t axis_index = local_index; axis_index < "
+                << source_info.shape[node.axis]
+                << "; axis_index += blockDim.x) {\n"
+                << loop_statements.str();
+            if (node.kind == expr_kind::sum) {
+                source << "        thread_total += " << value << ";\n";
+            }
+            else {
+                source << "        thread_total = thread_total > " << value
+                       << " ? thread_total : " << value << ";\n";
+            }
+            source << "    }\n"
+                   << "    __shared__ float shared[256];\n"
+                   << "    shared[local_index] = thread_total;\n"
+                   << "    __syncthreads();\n"
+                   << "    for (uint64_t stride = blockDim.x / 2; stride > 0; "
+                      "stride /= 2) {\n"
+                   << "        if (local_index < stride) {\n";
+            if (node.kind == expr_kind::sum) {
+                source << "            shared[local_index] += "
+                          "shared[local_index + stride];\n";
+            }
+            else {
+                source << "            shared[local_index] = "
+                          "shared[local_index] > shared[local_index + stride] "
+                          "? shared[local_index] : shared[local_index + "
+                          "stride];\n";
+            }
+            source
+                << "        }\n"
+                << "        __syncthreads();\n"
+                << "    }\n"
+                << "    if (local_index == 0) out[output_index] = shared[0];\n"
+                << "}\n";
+            return source.str();
+        }
+
+        bool can_use_block_reduction(const tensor_expr::node& node) {
+            return node.kind == expr_kind::sum || node.kind == expr_kind::max;
+        }
+
+        tensor materialize_expression(const tensor_expr::node& node);
+
+        std::shared_ptr<const tensor_expr::node> lower_nested_reductions(
+            const tensor_expr::node& node, std::deque<tensor>& temporaries,
+            bool is_root
+        ) {
+            if (!is_root && can_use_block_reduction(node)) {
+                temporaries.push_back(materialize_expression(node));
+                return make_node(expr_kind::input, &temporaries.back());
+            }
+
+            auto lowered = std::make_shared<tensor_expr::node>(node);
+            if (lowered->lhs != nullptr) {
+                lowered->lhs =
+                    lower_nested_reductions(*lowered->lhs, temporaries, false);
+            }
+            if (lowered->rhs != nullptr) {
+                lowered->rhs =
+                    lower_nested_reductions(*lowered->rhs, temporaries, false);
+            }
+            return lowered;
+        }
+
+        std::vector<const cuda_jit::device_buffer*> expression_inputs(
+            const expression_context& context
+        ) {
+            std::vector<const cuda_jit::device_buffer*> inputs;
+            inputs.reserve(context.inputs.size());
+            for (const tensor* input : context.inputs) {
+                inputs.push_back(&input->device_data());
+            }
+            return inputs;
+        }
+
         tensor materialize_expression(const tensor_expr::node& node) {
+            std::deque<tensor> temporaries;
+            const std::shared_ptr<const tensor_expr::node> lowered =
+                lower_nested_reductions(node, temporaries, true);
+
             expression_context context;
-            expression_info info = infer_expression(node, context);
+            expression_info info = infer_expression(*lowered, context);
             if (!context.initialized)
                 throw std::invalid_argument(
                     "tensor expression must reference at least one tensor"
@@ -913,19 +1027,34 @@ namespace porch {
                 );
             }
 
+            if (can_use_block_reduction(*lowered)) {
+                const expression_info source_info =
+                    infer_expression(*lowered->lhs, context);
+                const std::string kernel_source = fused_reduction_kernel_source(
+                    *lowered, context, source_info
+                );
+                const std::string ptx = cuda_jit::compile_to_ptx(kernel_source);
+                const std::vector<const cuda_jit::device_buffer*> inputs =
+                    expression_inputs(context);
+
+                cuda_jit::launch_fused_reduction(
+                    ptx, "porch_fused_reduction", inputs, result_device, count
+                );
+                return make_materialized_tensor(
+                    std::move(info.shape), std::move(result_values),
+                    std::move(result_device), false, context.placement
+                );
+            }
+
             std::ostringstream statements;
             const std::string expression_source =
-                emit_expression(node, context, "index", statements);
+                emit_expression(*lowered, context, "index", statements);
             const std::string kernel_source = fused_kernel_source(
                 context, statements.str(), expression_source
             );
             const std::string ptx = cuda_jit::compile_to_ptx(kernel_source);
-
-            std::vector<const cuda_jit::device_buffer*> inputs;
-            inputs.reserve(context.inputs.size());
-            for (const tensor* input : context.inputs) {
-                inputs.push_back(&input->device_data());
-            }
+            const std::vector<const cuda_jit::device_buffer*> inputs =
+                expression_inputs(context);
 
             cuda_jit::launch_fused_elementwise(
                 ptx, "porch_fused_elementwise", inputs, result_device, count

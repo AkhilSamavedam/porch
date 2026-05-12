@@ -35,6 +35,9 @@ set(
     concat_uses_lazy_device_ir
     reductions_use_lazy_device_ir
     keepdim_reductions_use_lazy_device_ir
+    block_reductions_handle_axis_larger_than_block
+    nested_reductions_materialize_with_block_reduction
+    softmax_style_expression_uses_nested_block_reduction
     exp_uses_lazy_device_ir
     divide_and_reciprocal_use_lazy_device_ir
     elementwise_minimum_maximum_use_lazy_device_ir

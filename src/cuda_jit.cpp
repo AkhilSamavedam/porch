@@ -867,4 +867,84 @@ namespace porch::cuda_jit {
         set_producer_stream(*out.state_, std::move(stream));
     }
 
+    void launch_fused_reduction(
+        std::string_view ptx, std::string_view function,
+        const std::vector<const device_buffer*>& inputs, device_buffer& out,
+        size_t count
+    ) {
+        if (count == 0) return;
+
+        const size_t bytes = count * sizeof(float32_t);
+        for (const device_buffer* input : inputs) {
+            if (input == nullptr) {
+                throw std::invalid_argument("CUDA reduction input is null");
+            }
+            if (input->empty()) {
+                throw std::invalid_argument("CUDA reduction input is empty");
+            }
+        }
+        require_device_bytes(out, bytes, "out");
+
+        std::shared_ptr<stream_handle> stream = current_stream();
+        cuda_environment& env = *stream->env;
+        for (const device_buffer* input : inputs) {
+            std::shared_ptr<stream_handle> input_stream =
+                producer_stream(*input->state_);
+            if (input_stream != stream) synchronize_stream(input_stream);
+        }
+
+        std::scoped_lock lock{env.mutex};
+        set_current_context(env);
+        const std::string ptx_text{ptx};
+        cuda_module raw_module = nullptr;
+        check_cuda(
+            env.runtime.api,
+            env.runtime.api.module_load_data(&raw_module, ptx_text.c_str()),
+            "cuModuleLoadData"
+        );
+        auto module =
+            std::make_shared<module_handle>(raw_module, env.runtime.api);
+        {
+            std::scoped_lock stream_lock{stream->mutex};
+            stream->live_modules.push_back(module);
+        }
+
+        cuda_function kernel = nullptr;
+        const std::string function_name{function};
+        check_cuda(
+            env.runtime.api,
+            env.runtime.api.module_get_function(
+                &kernel, module->get(), function_name.c_str()
+            ),
+            "cuModuleGetFunction"
+        );
+
+        const uint32_t block_size = 256;
+        const uint32_t grid_size = static_cast<uint32_t>(count);
+        uint64_t element_count = static_cast<uint64_t>(count);
+        std::vector<cuda_device_ptr> input_ptrs;
+        input_ptrs.reserve(inputs.size());
+        for (const device_buffer* input : inputs) {
+            input_ptrs.push_back(input->state_->ptr);
+        }
+        cuda_device_ptr out_ptr = out.state_->ptr;
+        std::vector<void*> params;
+        params.reserve(input_ptrs.size() + 2);
+        for (cuda_device_ptr& input_ptr : input_ptrs) {
+            params.push_back(&input_ptr);
+        }
+        params.push_back(&out_ptr);
+        params.push_back(&element_count);
+
+        check_cuda(
+            env.runtime.api,
+            env.runtime.api.launch_kernel(
+                kernel, grid_size, 1, 1, block_size, 1, 1, 0, stream->stream,
+                params.data(), nullptr
+            ),
+            "cuLaunchKernel"
+        );
+        set_producer_stream(*out.state_, std::move(stream));
+    }
+
 } // namespace porch::cuda_jit
