@@ -3,10 +3,12 @@
 `porch` (poor man's PyTorch) is an early C++ tensor library scaffold intended to grow toward a
 Torch-like programming model with ordinary C++ compilers and a CUDA JIT backend.
 
-CUDA support is modeled as a runtime JIT backend. The public library is built as
-ordinary C++ and does not enable CMake's CUDA language, so users of the library
-do not need `nvcc` in their build. CUDA driver discovery happens dynamically at
-runtime through the `cuda-jit` backend. There is no CPU tensor backend.
+CUDA support is modeled as the runtime JIT backend. The public library is built
+as ordinary C++ and does not enable CMake's CUDA language, so users of the
+library do not need `nvcc` in their build. CUDA driver discovery happens
+dynamically at runtime through the `cuda-jit` backend. There is no CPU tensor
+backend and no non-CUDA device kind; `porch::device` represents a CUDA device
+ordinal for systems with one or more NVIDIA GPUs.
 
 ## Execution model
 
@@ -27,7 +29,8 @@ stores the pending graph, and the later expression can inline that graph into
 At materialization time, porch lowers the connected graph to generated CUDA C++
 source, compiles it with NVRTC, caches the resulting PTX, and launches it through
 the CUDA driver API. The current lowering emits a single fused kernel for
-supported connected graphs, including elementwise ops, strided slicing, and
+supported connected graphs, including elementwise ops, strided slicing,
+reshape, unsqueeze, transpose, broadcast, concat, reductions, exponentials, and
 simple rank-2 matmul expression nodes.
 
 GPU work is launched on a CUDA stream and kernel launch does not automatically
@@ -85,5 +88,6 @@ ctest --test-dir build --output-on-failure
 
 The current implementation provides a small `porch::tensor` API, CUDA-only GPU
 storage, runtime NVRTC PTX compilation, CUDA driver context/memory/module/kernel
-launch support, lazy tensor graph recording, fused elementwise codegen, GPU
-slicing, and simple matmul lowering.
+launch support, lazy tensor graph recording, fused codegen, GPU slicing, shape
+metadata on tensor expressions, primitive view ops, primitive reductions, and
+simple matmul lowering.

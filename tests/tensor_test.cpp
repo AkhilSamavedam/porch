@@ -15,9 +15,7 @@ namespace {
 
     void construction_tracks_shape_and_device() {
         const porch::tensor values{
-            {2, 3},
-            {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F},
-            porch::device{porch::device_kind::gpu, 1}
+            {2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}, porch::device{1}
         };
 
         assert(values.rank() == 2);
@@ -27,7 +25,7 @@ namespace {
                  values.shape().begin(), values.shape().end()
              } == std::vector<porch::index_t>{2, 3})
         );
-        assert(values.placement().is_gpu());
+        assert(values.placement().is_cuda());
         assert(values.placement().ordinal() == 1);
     }
 
@@ -110,7 +108,7 @@ namespace {
         const porch::tensor values = porch::zeros({2, 2});
 
         assert(values.numel() == 4);
-        assert(values.placement().is_gpu());
+        assert(values.placement().is_cuda());
         assert(!values.device_data().empty());
         for (const porch::float32_t value : values.data()) {
             assert(value == 0.0F);
@@ -557,6 +555,30 @@ namespace {
         assert((row_maxes.cpu() == std::vector<porch::float32_t>{3.0F, 6.0F}));
     }
 
+    void keepdim_reductions_use_lazy_device_ir() {
+        const porch::tensor values{
+            {2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
+        };
+
+        const porch::tensor sums = porch::sum(values, 1, true);
+        const porch::tensor maxes = porch::max(values, 0, true);
+
+        assert(
+            (std::vector<porch::index_t>{
+                 sums.shape().begin(), sums.shape().end()
+             } == std::vector<porch::index_t>{2, 1})
+        );
+        assert((sums.cpu() == std::vector<porch::float32_t>{6.0F, 15.0F}));
+        assert(
+            (std::vector<porch::index_t>{
+                 maxes.shape().begin(), maxes.shape().end()
+             } == std::vector<porch::index_t>{1, 3})
+        );
+        assert(
+            (maxes.cpu() == std::vector<porch::float32_t>{4.0F, 5.0F, 6.0F})
+        );
+    }
+
     void exp_uses_lazy_device_ir() {
         const porch::tensor values{{3}, {-1.0F, 0.0F, 2.0F}};
 
@@ -566,6 +588,59 @@ namespace {
         assert(host[0] > 0.36F && host[0] < 0.37F);
         assert(host[1] == 1.0F);
         assert(host[2] > 7.38F && host[2] < 7.39F);
+    }
+
+    void divide_and_reciprocal_use_lazy_device_ir() {
+        const porch::tensor lhs{{3}, {2.0F, 4.0F, 8.0F}};
+        const porch::tensor rhs{{3}, {1.0F, 2.0F, 4.0F}};
+
+        const porch::tensor quotient = lhs / rhs;
+        const porch::tensor inverse = porch::reciprocal(lhs);
+
+        assert(
+            (quotient.cpu() == std::vector<porch::float32_t>{2.0F, 2.0F, 2.0F})
+        );
+        assert((
+            inverse.cpu() == std::vector<porch::float32_t>{0.5F, 0.25F, 0.125F}
+        ));
+    }
+
+    void elementwise_minimum_maximum_use_lazy_device_ir() {
+        const porch::tensor lhs{{4}, {-1.0F, 5.0F, 3.0F, 9.0F}};
+        const porch::tensor rhs{{4}, {2.0F, 4.0F, 7.0F, 1.0F}};
+
+        const porch::tensor high = porch::maximum(lhs, rhs);
+        const porch::tensor low = porch::minimum(lhs, rhs);
+
+        assert((
+            high.cpu() == std::vector<porch::float32_t>{2.0F, 5.0F, 7.0F, 9.0F}
+        ));
+        assert((
+            low.cpu() == std::vector<porch::float32_t>{-1.0F, 4.0F, 3.0F, 1.0F}
+        ));
+    }
+
+    void unsqueeze_and_expression_shape_are_lazy_metadata() {
+        const porch::tensor values{
+            {2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
+        };
+
+        auto expression = porch::unsqueeze(values + 1.0F, 1);
+
+        assert((expression.shape() == std::vector<porch::index_t>{2, 1, 3}));
+        assert(expression.rank() == 3);
+        assert(expression.numel() == 6);
+
+        const porch::tensor result = expression;
+        assert(
+            (std::vector<porch::index_t>{
+                 result.shape().begin(), result.shape().end()
+             } == std::vector<porch::index_t>{2, 1, 3})
+        );
+        assert(
+            (result.cpu() ==
+             std::vector<porch::float32_t>{2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F})
+        );
     }
 
     void rejects_invalid_shapes() {
@@ -579,9 +654,8 @@ namespace {
         assert(threw);
     }
 
-    void gpu_devices_select_cuda_jit_backend() {
-        const porch::backend selected =
-            porch::backend_for(porch::device{porch::device_kind::gpu});
+    void cuda_devices_select_cuda_jit_backend() {
+        const porch::backend selected = porch::backend_for(porch::device{});
 
         assert(selected.is_cuda_jit());
         assert(porch::backend_name(selected) == "cuda-jit");
@@ -687,10 +761,18 @@ namespace {
          true},
         {"concat_uses_lazy_device_ir", concat_uses_lazy_device_ir, true},
         {"reductions_use_lazy_device_ir", reductions_use_lazy_device_ir, true},
+        {"keepdim_reductions_use_lazy_device_ir",
+         keepdim_reductions_use_lazy_device_ir, true},
         {"exp_uses_lazy_device_ir", exp_uses_lazy_device_ir, true},
+        {"divide_and_reciprocal_use_lazy_device_ir",
+         divide_and_reciprocal_use_lazy_device_ir, true},
+        {"elementwise_minimum_maximum_use_lazy_device_ir",
+         elementwise_minimum_maximum_use_lazy_device_ir, true},
+        {"unsqueeze_and_expression_shape_are_lazy_metadata",
+         unsqueeze_and_expression_shape_are_lazy_metadata, true},
         {"rejects_invalid_shapes", rejects_invalid_shapes, false},
-        {"gpu_devices_select_cuda_jit_backend",
-         gpu_devices_select_cuda_jit_backend, false},
+        {"cuda_devices_select_cuda_jit_backend",
+         cuda_devices_select_cuda_jit_backend, false},
         {"cuda_jit_availability_matches_backend_availability",
          cuda_jit_availability_matches_backend_availability, false},
         {"cuda_jit_compiles_or_reports_missing_nvrtc",

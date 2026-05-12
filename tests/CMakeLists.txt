@@ -34,9 +34,13 @@ set(
     broadcast_to_uses_lazy_device_ir
     concat_uses_lazy_device_ir
     reductions_use_lazy_device_ir
+    keepdim_reductions_use_lazy_device_ir
     exp_uses_lazy_device_ir
+    divide_and_reciprocal_use_lazy_device_ir
+    elementwise_minimum_maximum_use_lazy_device_ir
+    unsqueeze_and_expression_shape_are_lazy_metadata
     rejects_invalid_shapes
-    gpu_devices_select_cuda_jit_backend
+    cuda_devices_select_cuda_jit_backend
     cuda_jit_availability_matches_backend_availability
     cuda_jit_compiles_or_reports_missing_nvrtc
     device_buffer_round_trips_values

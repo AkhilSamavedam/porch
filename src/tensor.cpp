@@ -28,15 +28,20 @@ namespace porch {
         add,
         subtract,
         multiply,
+        divide,
         matmul,
         slice,
         reshape,
+        unsqueeze,
         transpose,
         broadcast,
         concat,
         sum,
         max,
+        maximum,
+        minimum,
         exp,
+        reciprocal,
     };
 
     struct tensor_expr::node {
@@ -50,6 +55,7 @@ namespace porch {
         std::vector<index_t> shape;
         index_t slice_offset = 0;
         size_t axis = 0;
+        bool keepdim = false;
     };
 
     struct realized_storage {
@@ -158,12 +164,13 @@ namespace porch {
 
         std::shared_ptr<const tensor_expr::node> make_axis_node(
             expr_kind kind, std::shared_ptr<const tensor_expr::node> source,
-            size_t axis
+            size_t axis, bool keepdim = false
         ) {
             auto node = std::make_shared<tensor_expr::node>();
             node->kind = kind;
             node->lhs = std::move(source);
             node->axis = axis;
+            node->keepdim = keepdim;
             return node;
         }
 
@@ -292,8 +299,14 @@ namespace porch {
         }
 
         std::vector<index_t> reduced_shape(
-            std::span<const index_t> shape, size_t axis
+            std::span<const index_t> shape, size_t axis, bool keepdim = false
         ) {
+            if (keepdim) {
+                std::vector<index_t> result{shape.begin(), shape.end()};
+                result[axis] = 1;
+                return result;
+            }
+
             std::vector<index_t> result;
             result.reserve(shape.size() - 1);
             for (size_t dim = 0; dim < shape.size(); ++dim) {
@@ -339,7 +352,10 @@ namespace porch {
                     return {};
                 case expr_kind::add:
                 case expr_kind::subtract:
-                case expr_kind::multiply: {
+                case expr_kind::multiply:
+                case expr_kind::divide:
+                case expr_kind::maximum:
+                case expr_kind::minimum: {
                     expression_info lhs = infer_expression(*node.lhs, context);
                     expression_info rhs = infer_expression(*node.rhs, context);
                     require_same_shape(lhs, rhs);
@@ -384,6 +400,25 @@ namespace porch {
                         );
                     }
                     return {node.shape, false};
+                }
+                case expr_kind::unsqueeze: {
+                    expression_info source =
+                        infer_expression(*node.lhs, context);
+                    if (source.scalar) {
+                        throw std::invalid_argument(
+                            "unsqueeze operand must be a tensor"
+                        );
+                    }
+                    if (node.axis > source.shape.size()) {
+                        throw std::invalid_argument(
+                            "unsqueeze axis is out of bounds"
+                        );
+                    }
+                    std::vector<index_t> shape = source.shape;
+                    shape.insert(
+                        shape.begin() + static_cast<ptrdiff_t>(node.axis), 1
+                    );
+                    return {std::move(shape), false};
                 }
                 case expr_kind::transpose: {
                     expression_info source =
@@ -443,9 +478,13 @@ namespace porch {
                         );
                     }
                     require_axis(node.axis, source.shape.size(), "reduction");
-                    return {reduced_shape(source.shape, node.axis), false};
+                    return {
+                        reduced_shape(source.shape, node.axis, node.keepdim),
+                        false
+                    };
                 }
-                case expr_kind::exp: {
+                case expr_kind::exp:
+                case expr_kind::reciprocal: {
                     expression_info source =
                         infer_expression(*node.lhs, context);
                     if (source.scalar) return source;
@@ -531,13 +570,13 @@ namespace porch {
         }
 
         std::string emit_reduction_source_index(
-            std::span<const index_t> source_shape, size_t axis,
+            std::span<const index_t> source_shape, size_t axis, bool keepdim,
             std::string_view index_expression, std::string_view axis_index
         ) {
             const std::vector<index_t> source_strides =
                 contiguous_strides(source_shape);
             const std::vector<index_t> output_shape =
-                reduced_shape(source_shape, axis);
+                reduced_shape(source_shape, axis, keepdim);
             std::vector<index_t> output_dimension_sizes(output_shape.size(), 1);
             index_t output_dimension_size = 1;
             for (size_t dim = output_shape.size(); dim > 0; --dim) {
@@ -551,6 +590,14 @@ namespace porch {
             for (size_t dim = 0; dim < source_shape.size(); ++dim) {
                 if (dim == axis) {
                     expression << " + (" << axis_index << ") * "
+                               << source_strides[dim];
+                    continue;
+                }
+
+                if (keepdim) {
+                    expression << " + (((" << index_expression << ") / "
+                               << output_dimension_sizes[dim] << ") % "
+                               << output_shape[dim] << ") * "
                                << source_strides[dim];
                     continue;
                 }
@@ -608,6 +655,31 @@ namespace porch {
                                *node.rhs, context, index_expression, statements
                            ) +
                            ")";
+                case expr_kind::divide:
+                    return "(" +
+                           emit_expression(
+                               *node.lhs, context, index_expression, statements
+                           ) +
+                           " / " +
+                           emit_expression(
+                               *node.rhs, context, index_expression, statements
+                           ) +
+                           ")";
+                case expr_kind::maximum:
+                case expr_kind::minimum: {
+                    const std::string lhs = emit_expression(
+                        *node.lhs, context, index_expression, statements
+                    );
+                    const std::string rhs = emit_expression(
+                        *node.rhs, context, index_expression, statements
+                    );
+                    if (node.kind == expr_kind::maximum) {
+                        return "((" + lhs + ") > (" + rhs + ") ? (" + lhs +
+                               ") : (" + rhs + "))";
+                    }
+                    return "((" + lhs + ") < (" + rhs + ") ? (" + lhs +
+                           ") : (" + rhs + "))";
+                }
                 case expr_kind::matmul: {
                     expression_info lhs = infer_expression(*node.lhs, context);
                     expression_info rhs = infer_expression(*node.rhs, context);
@@ -656,6 +728,10 @@ namespace porch {
                     );
                 }
                 case expr_kind::reshape:
+                    return emit_expression(
+                        *node.lhs, context, index_expression, statements
+                    );
+                case expr_kind::unsqueeze:
                     return emit_expression(
                         *node.lhs, context, index_expression, statements
                     );
@@ -754,8 +830,8 @@ namespace porch {
                     std::ostringstream loop_statements;
                     const std::string source_index =
                         emit_reduction_source_index(
-                            source.shape, node.axis, index_expression,
-                            axis_index
+                            source.shape, node.axis, node.keepdim,
+                            index_expression, axis_index
                         );
                     const std::string value = emit_expression(
                         *node.lhs, context, source_index, loop_statements
@@ -775,6 +851,13 @@ namespace porch {
                 }
                 case expr_kind::exp: {
                     return "__expf(" +
+                           emit_expression(
+                               *node.lhs, context, index_expression, statements
+                           ) +
+                           ")";
+                }
+                case expr_kind::reciprocal: {
+                    return "(1.0f / " +
                            emit_expression(
                                *node.lhs, context, index_expression, statements
                            ) +
@@ -1121,6 +1204,17 @@ namespace porch {
 
     tensor tensor_expr::eval() const { return materialize(*this); }
 
+    std::vector<index_t> tensor_expr::shape() const {
+        expression_context context;
+        expression_info info = infer_expression(*root_, context);
+        if (info.scalar) return {};
+        return info.shape;
+    }
+
+    size_t tensor_expr::rank() const { return shape().size(); }
+
+    size_t tensor_expr::numel() const { return checked_numel(shape()); }
+
     tensor_expr::operator tensor() const {
         expression_context context;
         expression_info info = infer_expression(*root_, context);
@@ -1165,6 +1259,10 @@ namespace porch {
         return materialize(tensor_expr{lhs} * tensor_expr{rhs});
     }
 
+    tensor divide(const tensor& lhs, const tensor& rhs) {
+        return materialize(tensor_expr{lhs} / tensor_expr{rhs});
+    }
+
     tensor make_materialized_tensor(
         std::vector<index_t> shape, std::vector<float32_t> values,
         cuda_jit::device_buffer device_values, bool host_current,
@@ -1189,6 +1287,12 @@ namespace porch {
         )};
     }
 
+    tensor_expr unsqueeze(tensor_expr value, size_t axis) {
+        return tensor_expr{
+            make_axis_node(expr_kind::unsqueeze, std::move(value.root_), axis)
+        };
+    }
+
     tensor_expr transpose(tensor_expr value) {
         return tensor_expr{make_node(
             expr_kind::transpose, nullptr, 0.0F, std::move(value.root_)
@@ -1207,22 +1311,42 @@ namespace porch {
         };
     }
 
-    tensor_expr sum(tensor_expr value, size_t axis) {
-        return tensor_expr{
-            make_axis_node(expr_kind::sum, std::move(value.root_), axis)
-        };
+    tensor_expr sum(tensor_expr value, size_t axis, bool keepdim) {
+        return tensor_expr{make_axis_node(
+            expr_kind::sum, std::move(value.root_), axis, keepdim
+        )};
     }
 
-    tensor_expr max(tensor_expr value, size_t axis) {
-        return tensor_expr{
-            make_axis_node(expr_kind::max, std::move(value.root_), axis)
-        };
+    tensor_expr max(tensor_expr value, size_t axis, bool keepdim) {
+        return tensor_expr{make_axis_node(
+            expr_kind::max, std::move(value.root_), axis, keepdim
+        )};
+    }
+
+    tensor_expr maximum(tensor_expr lhs, tensor_expr rhs) {
+        return tensor_expr{make_node(
+            expr_kind::maximum, nullptr, 0.0F, std::move(lhs.root_),
+            std::move(rhs.root_)
+        )};
+    }
+
+    tensor_expr minimum(tensor_expr lhs, tensor_expr rhs) {
+        return tensor_expr{make_node(
+            expr_kind::minimum, nullptr, 0.0F, std::move(lhs.root_),
+            std::move(rhs.root_)
+        )};
     }
 
     tensor_expr exp(tensor_expr value) {
         return tensor_expr{
             make_node(expr_kind::exp, nullptr, 0.0F, std::move(value.root_))
         };
+    }
+
+    tensor_expr reciprocal(tensor_expr value) {
+        return tensor_expr{make_node(
+            expr_kind::reciprocal, nullptr, 0.0F, std::move(value.root_)
+        )};
     }
 
     tensor materialize(const tensor_expr& expression) {
@@ -1246,6 +1370,13 @@ namespace porch {
     tensor_expr operator*(tensor_expr lhs, tensor_expr rhs) {
         return tensor_expr{make_node(
             expr_kind::multiply, nullptr, 0.0F, std::move(lhs.root_),
+            std::move(rhs.root_)
+        )};
+    }
+
+    tensor_expr operator/(tensor_expr lhs, tensor_expr rhs) {
+        return tensor_expr{make_node(
+            expr_kind::divide, nullptr, 0.0F, std::move(lhs.root_),
             std::move(rhs.root_)
         )};
     }

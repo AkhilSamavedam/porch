@@ -12,33 +12,21 @@ namespace porch {
 
     class tensor_expr;
 
-    enum class device_kind {
-        gpu,
-    };
-
     class device {
       public:
-        constexpr explicit device(
-            device_kind kind = device_kind::gpu, int ordinal = 0
-        ) noexcept
-            : kind_(kind), ordinal_(ordinal) {}
+        constexpr explicit device(int ordinal = 0) noexcept
+            : ordinal_(ordinal) {}
 
-        [[nodiscard]] constexpr device_kind kind() const noexcept {
-            return kind_;
-        }
         [[nodiscard]] constexpr int ordinal() const noexcept {
             return ordinal_;
         }
-        [[nodiscard]] constexpr bool is_gpu() const noexcept {
-            return kind_ == device_kind::gpu;
-        }
+        [[nodiscard]] constexpr bool is_cuda() const noexcept { return true; }
 
         friend constexpr bool operator==(
             const device&, const device&
         ) noexcept = default;
 
       private:
-        device_kind kind_;
         int ordinal_;
     };
 
@@ -157,6 +145,9 @@ namespace porch {
         tensor_expr(float32_t value);
 
         [[nodiscard]] tensor eval() const;
+        [[nodiscard]] std::vector<index_t> shape() const;
+        [[nodiscard]] size_t rank() const;
+        [[nodiscard]] size_t numel() const;
 
         operator tensor() const;
 
@@ -166,10 +157,12 @@ namespace porch {
         friend tensor_expr operator+(tensor_expr lhs, tensor_expr rhs);
         friend tensor_expr operator-(tensor_expr lhs, tensor_expr rhs);
         friend tensor_expr operator*(tensor_expr lhs, tensor_expr rhs);
+        friend tensor_expr operator/(tensor_expr lhs, tensor_expr rhs);
         friend tensor_expr matmul(tensor_expr lhs, tensor_expr rhs);
         friend tensor_expr reshape(
             tensor_expr value, std::vector<index_t> shape
         );
+        friend tensor_expr unsqueeze(tensor_expr value, size_t axis);
         friend tensor_expr transpose(tensor_expr value);
         friend tensor_expr broadcast_to(
             tensor_expr value, std::vector<index_t> shape
@@ -177,9 +170,12 @@ namespace porch {
         friend tensor_expr concat(
             tensor_expr lhs, tensor_expr rhs, size_t axis
         );
-        friend tensor_expr sum(tensor_expr value, size_t axis);
-        friend tensor_expr max(tensor_expr value, size_t axis);
+        friend tensor_expr sum(tensor_expr value, size_t axis, bool keepdim);
+        friend tensor_expr max(tensor_expr value, size_t axis, bool keepdim);
+        friend tensor_expr maximum(tensor_expr lhs, tensor_expr rhs);
+        friend tensor_expr minimum(tensor_expr lhs, tensor_expr rhs);
         friend tensor_expr exp(tensor_expr value);
+        friend tensor_expr reciprocal(tensor_expr value);
         friend class tensor;
         friend tensor materialize(const tensor_expr& expression);
 
@@ -195,10 +191,12 @@ namespace porch {
     [[nodiscard]] tensor add(const tensor& lhs, const tensor& rhs);
     [[nodiscard]] tensor subtract(const tensor& lhs, const tensor& rhs);
     [[nodiscard]] tensor multiply(const tensor& lhs, const tensor& rhs);
+    [[nodiscard]] tensor divide(const tensor& lhs, const tensor& rhs);
     [[nodiscard]] tensor_expr matmul(tensor_expr lhs, tensor_expr rhs);
     [[nodiscard]] tensor_expr reshape(
         tensor_expr value, std::vector<index_t> shape
     );
+    [[nodiscard]] tensor_expr unsqueeze(tensor_expr value, size_t axis);
     [[nodiscard]] tensor_expr transpose(tensor_expr value);
     [[nodiscard]] tensor_expr broadcast_to(
         tensor_expr value, std::vector<index_t> shape
@@ -206,14 +204,22 @@ namespace porch {
     [[nodiscard]] tensor_expr concat(
         tensor_expr lhs, tensor_expr rhs, size_t axis
     );
-    [[nodiscard]] tensor_expr sum(tensor_expr value, size_t axis);
-    [[nodiscard]] tensor_expr max(tensor_expr value, size_t axis);
+    [[nodiscard]] tensor_expr sum(
+        tensor_expr value, size_t axis, bool keepdim = false
+    );
+    [[nodiscard]] tensor_expr max(
+        tensor_expr value, size_t axis, bool keepdim = false
+    );
+    [[nodiscard]] tensor_expr maximum(tensor_expr lhs, tensor_expr rhs);
+    [[nodiscard]] tensor_expr minimum(tensor_expr lhs, tensor_expr rhs);
     [[nodiscard]] tensor_expr exp(tensor_expr value);
+    [[nodiscard]] tensor_expr reciprocal(tensor_expr value);
 
     [[nodiscard]] tensor materialize(const tensor_expr& expression);
 
     [[nodiscard]] tensor_expr operator+(tensor_expr lhs, tensor_expr rhs);
     [[nodiscard]] tensor_expr operator-(tensor_expr lhs, tensor_expr rhs);
     [[nodiscard]] tensor_expr operator*(tensor_expr lhs, tensor_expr rhs);
+    [[nodiscard]] tensor_expr operator/(tensor_expr lhs, tensor_expr rhs);
 
 } // namespace porch
